@@ -62,30 +62,46 @@ export async function runSuite(
 
     for (const m of modes) {
       if (abort.signal.aborted) break;
-      emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m });
-      log(`\n=== ${tc.id} [${m}] ${tc.title}`);
       const evidenceDir = path.join(runDir, "evidence", `${tc.id}-${m}`);
       fs.mkdirSync(evidenceDir, { recursive: true });
 
-      let result = await runCaseWithAgent(tc, m, {
-        suite,
-        auth,
-        workspaceDir: opts.workspaceDir,
-        toolRoot: opts.toolRoot,
-        evidenceDir,
-        headless: opts.headless,
-        model: opts.model,
-        maxTurns: opts.maxTurns,
-        useSubscription: opts.useSubscription,
-        abort,
-        log,
-      });
-      if (m === "automation" && result.status === "passed") {
-        result = await verifySpec(result, opts.workspaceDir, auth, log);
+      // Cheap model first; anything short of a clean pass is re-run on the next (stronger) model, so
+      // flaky agent behaviour is retried and reported defects are confirmed before they reach you.
+      const models = opts.models.length ? opts.models : [""];
+      const attempts: NonNullable<CaseResult["attempts"]> = [];
+      let result!: CaseResult;
+      for (let i = 0; i < models.length; i++) {
+        const model = models[i];
+        if (i === 0) emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m, model });
+        log(`\n=== ${tc.id} [${m}] ${tc.title}${model ? ` (model: ${model})` : ""}`);
+        result = await runCaseWithAgent(tc, m, {
+          suite,
+          auth,
+          workspaceDir: opts.workspaceDir,
+          toolRoot: opts.toolRoot,
+          evidenceDir,
+          headless: opts.headless,
+          model,
+          maxTurns: opts.maxTurns,
+          useSubscription: opts.useSubscription,
+          abort,
+          log,
+        });
+        if (m === "automation" && result.status === "passed") {
+          result = await verifySpec(result, opts.workspaceDir, auth, log);
+        }
+        result.model = model || "default";
+        attempts.push({ model: result.model, status: result.status, summary: result.summary });
+        const next = models[i + 1];
+        if (result.status === "passed" || !next || abort.signal.aborted) break;
+        const reason = `${model || "default"} reported ${result.status}: ${result.summary.slice(0, 200)}`;
+        log(`>>> Escalating ${tc.id} [${m}] to ${next} - ${reason}`);
+        emit({ type: "escalate", id: tc.id, mode: m, from: model, to: next, reason });
       }
-      log(`=== ${tc.id} [${m}] ${result.status.toUpperCase()}: ${result.summary}`);
+      result.attempts = attempts;
+      log(`=== ${tc.id} [${m}] ${result.status.toUpperCase()} (${result.model}): ${result.summary}`);
       results.push(result);
-      emit({ type: "caseEnd", result });
+      emit({ type: "caseEnd", result, runDir });
       writeRun(runDir, suite, org, auth, results);
     }
   }

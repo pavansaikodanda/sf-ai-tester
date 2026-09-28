@@ -79,6 +79,10 @@ export interface CaseResult extends AgentVerdict {
   durationMs: number;
   costUsd: number;
   turns: number;
+  /** Model that produced this verdict */
+  model?: string;
+  /** Models tried, in order, with their verdicts */
+  attempts?: { model: string; status: Status; summary: string }[];
 }
 
 export interface RunOptions {
@@ -87,8 +91,9 @@ export interface RunOptions {
   workspaceDir: string;
   headless: boolean;
   login: LoginOptions;
-  /** Empty = Claude Code's default model for the logged-in account */
-  model?: string;
+  /** Models to try in order: the first one runs every case; later ones re-run a case that did not pass
+   *  (agent error, script instability or a reported failure) so defects are confirmed by a stronger model. */
+  models: string[];
   maxTurns: number;
   /** Strip ANTHROPIC_API_KEY so the Claude Code subscription login is used */
   useSubscription: boolean;
@@ -97,6 +102,7 @@ export interface RunOptions {
 export type RunEvent =
   | { type: "log"; message: string }
   | { type: "needsUser"; message: string }
-  | { type: "caseStart"; id: string; title: string; mode: "manual" | "automation" }
-  | { type: "caseEnd"; result: CaseResult }
+  | { type: "caseStart"; id: string; title: string; mode: "manual" | "automation"; model: string }
+  | { type: "escalate"; id: string; mode: "manual" | "automation"; from: string; to: string; reason: string }
+  | { type: "caseEnd"; result: CaseResult; runDir: string }
   | { type: "runEnd"; runDir: string; results: CaseResult[] };

@@ -131,7 +131,12 @@ Process:
 Return your verdict in the required JSON format with "specFile" set to "${spec}". "passed" means the spec passes.`;
 }
 
-function playwrightMcp(ctx: AgentContext): McpServerConfig {
+export function playwrightMcp(ctx: {
+  toolRoot: string;
+  auth: AuthSession;
+  evidenceDir: string;
+  headless: boolean;
+}): McpServerConfig {
   const cli = path.join(ctx.toolRoot, "node_modules", "@playwright", "mcp", "cli.js");
   return {
     type: "stdio",
@@ -148,6 +153,17 @@ function playwrightMcp(ctx: AgentContext): McpServerConfig {
   };
 }
 
+/** Environment for the Claude Code process. */
+export function agentEnv(useSubscription: boolean, extra: Record<string, string> = {}) {
+  const env: Record<string, string | undefined> = { ...process.env, ...extra, CLAUDE_AGENT_SDK_CLIENT_APP: "sf-ai-tester/0.2.0" };
+  if (useSubscription) {
+    // Force the Claude Code login (Pro/Max subscription) instead of API-key billing.
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+  }
+  return env;
+}
+
 export async function runCaseWithAgent(
   tc: TestCase,
   mode: "manual" | "automation",
@@ -157,17 +173,10 @@ export async function runCaseWithAgent(
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   const started = Date.now();
 
-  const env: Record<string, string | undefined> = {
-    ...process.env,
+  const env = agentEnv(ctx.useSubscription, {
     SF_STORAGE_STATE: ctx.auth.storageStatePath,
     SF_INSTANCE_URL: ctx.auth.instanceUrl,
-    CLAUDE_AGENT_SDK_CLIENT_APP: "sf-ai-tester/0.1.0",
-  };
-  if (ctx.useSubscription) {
-    // Force the Claude Code login (Pro/Max subscription) instead of API-key billing.
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
-  }
+  });
 
   const allowedTools = mode === "manual" ? ["mcp__playwright"] : ["mcp__playwright", "Read", "Glob", "Grep"];
   const specDir = path.resolve(ctx.workspaceDir, SPEC_DIR) + path.sep;

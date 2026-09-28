@@ -42,14 +42,27 @@ npm run build
 Open this folder in VS Code and press **F5** to launch a development window with the extension loaded.
 (`npm run package` builds a `.vsix` you can install permanently.)
 
-In the window that opens, open the folder where your tests will live, then use the Command Palette:
+### Mission Control
 
-1. **SF AI Tester: Initialize Test Project**: creates `test-cases/sample.sf-tests.yaml` and installs `@playwright/test`
-2. **SF AI Tester: Configure Org**: username/password (stored in VS Code SecretStorage), interactive (passkey/SSO), or an `sf` CLI alias
-3. **SF AI Tester: Run Test Cases**: pick the suite, the cases and the mode. You can also right-click a YAML file.
+Click the **SF AI Tester** icon in the activity bar (or **$(rocket) SF AI Tester** in the status bar, or run
+**SF AI Tester: Open Mission Control**) to open the console:
 
-The live log is in the *SF AI Tester* output panel. The HTML report (steps, observations, defects,
-screenshots) opens when the run finishes.
+| Panel | What you do there |
+|---|---|
+| **01 Org Uplink** | Add orgs (user + password, passkey/SSO, or `sf` CLI alias) and **Establish Uplink** to log in and verify your passkey |
+| **02 Mission Parameters** | Primary and fallback model, login window mode, and max agent turns |
+| **03 Test Matrix** | Suites, **Generate with AI**, create/edit/delete cases. Each case has a **Manual** and an **Automation** status pod. Click a pod to run it, or select cases and run Manual / Auto / Both |
+| **04 Telemetry** | Pass rate, run progress, and per-mode status bars |
+| **05 Live Feed** | The agent's actions as they happen |
+
+The **Visible / Headless** switch in the header controls the test browser. Test cases are stored as YAML in
+`test-cases/`, so you can also edit them by hand or keep them in git.
+
+### Model escalation
+Every case runs on **Haiku 4.5** first. If a run doesn't pass (agent error, unstable script or a reported
+failure), it's automatically re-run on **Sonnet 5**. Flaky runs get a retry, and a defect is only reported once
+the stronger model confirms it. The pod shows which model produced the verdict. Change the models in Mission
+Parameters (`sfAiTester.primaryModel` / `sfAiTester.fallbackModel`).
 
 ### Settings
 | Setting | Default | |
@@ -59,7 +72,8 @@ screenshots) opens when the run finishes.
 | `sfAiTester.login.browser` | `default` | `default` (Edge on Windows) / `msedge` / `chrome` / `chromium` |
 | `sfAiTester.login.timeoutMinutes` | `5` | Time allowed to finish a passkey/MFA login |
 | `sfAiTester.login.sessionMaxAgeHours` | `8` | How long a saved session is reused |
-| `sfAiTester.model` | `""` | Empty means your Claude Code default. Examples: `claude-opus-5`, `claude-sonnet-5` |
+| `sfAiTester.primaryModel` | `claude-haiku-4-5` | Runs every case first |
+| `sfAiTester.fallbackModel` | `claude-sonnet-5` | Re-runs anything that didn't pass |
 | `sfAiTester.maxTurns` | `80` | Maximum agent turns per test case |
 | `sfAiTester.useSubscription` | `true` | Ignore `ANTHROPIC_API_KEY` and use the Claude Code login |
 
@@ -91,7 +105,7 @@ failed).
 ```bash
 # password auth
 SF_LOGIN_URL=https://test.salesforce.com SF_USERNAME=... SF_PASSWORD=... \
-  node dist/cli.js run test-cases/sample.sf-tests.yaml --mode both
+  node dist/cli.js run test-cases/sample.sf-tests.yaml --mode both --models claude-haiku-4-5,claude-sonnet-5
 # or sf CLI auth
 SF_ALIAS=my-uat node dist/cli.js run test-cases/sample.sf-tests.yaml --headed
 

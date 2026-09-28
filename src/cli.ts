@@ -6,7 +6,7 @@
  *   SF_ALIAS                                      (sf CLI auth), or
  *   SF_INTERACTIVE=1 [+ SF_LOGIN_URL, SF_USERNAME] (you log in yourself: passkey / SSO / MFA)
  *
- *   sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--login auto|headed|headless] [--model <id>] [--max-turns N] [--api-key]
+ *   sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--login auto|headed|headless] [--models haiku-id,sonnet-id] [--max-turns N] [--api-key]
  *   sf-ai-tester auth [--login auto|headed|headless]    # saves a session so generated specs can run with plain `npx playwright test`
  */
 import * as path from "path";
@@ -55,7 +55,7 @@ async function main() {
     return;
   }
   if (cmd !== "run" || !file) {
-    console.log("usage: sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--model <id>] | sf-ai-tester auth");
+    console.log("usage: sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--models a,b] | sf-ai-tester auth");
     process.exit(2);
   }
 
@@ -70,7 +70,7 @@ async function main() {
       toolRoot: path.resolve(__dirname, ".."),
       headless,
       login,
-      model: arg("model"),
+      models: (arg("models") ?? "claude-haiku-4-5,claude-sonnet-5").split(",").map((m) => m.trim()).filter(Boolean),
       maxTurns: Number(arg("max-turns") ?? 80),
       useSubscription: !flag("api-key"),
     },
