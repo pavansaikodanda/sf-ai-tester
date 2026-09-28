@@ -132,6 +132,8 @@
       <span class="chip ${org ? "on" : ""}"><span class="dot"></span>${org ? `UPLINK · ${esc(org.name)}` : "NO ORG LINKED"}</span>
       <span class="chip chain" title="Cases run on the primary model; anything short of PASSED is re-run on the fallback model">MODEL <b>${esc(modelShort(S.settings.primaryModel))}</b> <i>⟶</i> <b>${esc(modelShort(S.settings.fallbackModel))}</b></span>
       ${busyTxt ? `<span class="chip warn"><span class="dot"></span>${busyTxt}</span>` : ""}
+      <span class="chip" title="Test cases, reports, sessions and generated specs are stored here. Any folder works.">▣ <span style="max-width:220px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom">${esc(S.workspace)}</span>
+        <button class="ghost sm" data-act="folder:reveal" title="Open in Explorer">↗</button><button class="ghost sm" data-act="folder:pick">CHANGE</button></span>
       <span class="spacer"></span>
       <span class="switch ${S.settings.headless ? "on" : ""}" data-act="set:headless" title="Test-execution browser. The login window always appears when you need to verify a passkey.">
         <span>${S.settings.headless ? "HEADLESS" : "VISIBLE"}</span><span class="track"><span class="knob"></span></span></span>
@@ -141,7 +143,6 @@
 
   function infoBanners() {
     const out = [];
-    if (!S.workspace) out.push(`<div class="info-banner"><b>No folder open.</b><span class="muted">Test cases, generated specs and reports are stored in your workspace folder.</span><button class="primary sm" data-act="folder:open">OPEN FOLDER</button></div>`);
     if (S.suiteError) out.push(`<div class="info-banner" style="border-color:var(--red)"><b style="color:var(--red)">Suite file error:</b><span>${esc(S.suiteError)}</span><button class="sm" data-act="suite:file">OPEN FILE</button></div>`);
     return out.join("");
   }
@@ -369,7 +370,7 @@
   function generator() {
     const g = ui.gen;
     const body = g.busy
-      ? `<div class="scanning"><div class="orb"></div><div class="txt">SYNTHESIZING TEST CASES</div><div class="muted">${g.explore ? "Exploring the org read-only, then drafting cases…" : "Drafting cases from your requirement…"} Watch the live feed.</div><button class="danger sm" data-act="cancel">ABORT</button></div>`
+      ? `<div class="scanning"><div class="orb"></div><div class="txt">SYNTHESIZING TEST CASES</div><div class="muted">${g.explore ? "Exploring the org read-only, then drafting cases…" : "Drafting cases from your requirement…"} Usually 20–60 seconds.</div><div class="term" id="gen-feed" style="height:130px;width:100%"></div><button class="danger sm" data-act="cancel">ABORT</button></div>`
       : g.results
         ? `<div class="muted">Generated ${g.results.length} case(s) with <b style="color:var(--cyan)">${esc(modelShort(g.model))}</b>. Pick the ones to import:</div>
           <div class="gen-list">${g.results.map((c, i) => `<label class="gen-item" style="animation-delay:${i * 60}ms"><input type="checkbox" class="check" data-act="gen:pick" data-i="${i}" ${g.picked.has(i) ? "checked" : ""}>
@@ -417,7 +418,8 @@
       case "org:login": return post("org:login", { name: S.activeOrg });
       case "set:headless": return post("settings:update", { key: "headless", value: !S.settings.headless });
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
-      case "folder:open": return post("folder:open");
+      case "folder:pick": return post("folder:pick");
+      case "folder:reveal": return post("folder:reveal");
       case "setup:playwright": return post("setup:playwright");
       case "suite:new": return prompter("NEW SUITE", "Suite name", "", (v) => v && post("suite:new", { name: v }));
       case "suite:context": return prompter("SUITE CONTEXT", "Shared context sent with every test (org setup, user profile, apps...)", S.suite?.context, (v) => post("suite:context", { context: v }));
@@ -538,7 +540,12 @@
         if (S) S.busy = m.busy;
         if (m.busy !== "gen" && ui.gen.busy) { ui.gen.busy = false; }
         return render();
-      case "log": return addLog(m.line);
+      case "log": {
+        addLog(m.line);
+        const gf = $("#gen-feed");
+        if (gf) { const d = document.createElement("div"); d.textContent = m.line; gf.appendChild(d); gf.scrollTop = gf.scrollHeight; }
+        return;
+      }
       case "toast":
         if (m.level === "error") { ui.pendingClose = false; ui.orgSaving = null; }
         return toast(m.level, m.text);
@@ -564,7 +571,7 @@
       }
       case "gen:result":
         ui.gen.busy = false;
-        if (m.error) { ui.gen.results = null; if (ui.modal) generator(); return; }
+        if (m.error) { ui.gen.results = null; if (ui.modal) generator(); toast("error", m.error); return; }
         ui.gen.results = m.cases;
         ui.gen.model = m.model;
         ui.gen.picked = new Set(m.cases.map((_, i) => i));

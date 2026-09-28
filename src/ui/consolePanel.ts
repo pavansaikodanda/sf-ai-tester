@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { loadSuite, saveSuite } from "../core/suite";
 import { runSuite } from "../core/runner";
@@ -57,9 +58,16 @@ export class ConsolePanel {
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.webview.onDidReceiveMessage((m: Msg) => this.handle(m).catch((e) => this.toast("error", (e as Error).message)), null, this.disposables);
     vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("sfAiTester") && this.pushState(), null, this.disposables);
-    const watcher = vscode.workspace.createFileSystemWatcher("**/*.{yaml,yml}");
-    watcher.onDidChange((u) => u.fsPath === this.suiteFile() && this.pushState());
-    this.disposables.push(watcher);
+    this.watch();
+  }
+
+  private watcher: vscode.FileSystemWatcher | undefined;
+  /** Re-renders when the active suite YAML is edited by hand. */
+  private watch() {
+    this.watcher?.dispose();
+    this.watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(this.workspace()), "**/*.{yaml,yml}"));
+    this.watcher.onDidChange((u) => u.fsPath === this.suiteFile() && this.pushState());
+    this.disposables.push(this.watcher);
   }
 
   private dispose() {
@@ -70,8 +78,14 @@ export class ConsolePanel {
 
   // ---------- helpers ----------
 
-  private workspace(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  /**
+   * Where suites, reports, sessions and generated specs live - any folder works, no Salesforce project needed:
+   * the sfAiTester.dataFolder setting, else the open VS Code folder, else ~/SF-AI-Tester.
+   */
+  private workspace(): string {
+    const dir = this.cfg().get<string>("dataFolder") || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.join(os.homedir(), "SF-AI-Tester");
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
   }
   private cfg() {
     return vscode.workspace.getConfiguration("sfAiTester");
@@ -126,7 +140,7 @@ export class ConsolePanel {
   }
 
   private suiteKey(file: string) {
-    return path.relative(this.workspace()!, file).replace(/\\/g, "/");
+    return path.relative(this.workspace(), file).replace(/\\/g, "/");
   }
 
   private loadCurrent(): { file: string; suite: TestSuite } | undefined {
@@ -163,7 +177,7 @@ export class ConsolePanel {
     const hasPlaywright = !!ws && fs.existsSync(path.join(ws, "node_modules", "@playwright", "test"));
     this.post({
       type: "state",
-      workspace: ws ?? null,
+      workspace: ws,
       hasPlaywright,
       orgs: this.orgs().map(({ password, ...o }) => o),
       activeOrg: this.activeOrgName() ?? null,
@@ -182,12 +196,6 @@ export class ConsolePanel {
         maxTurns: cfg.get("maxTurns", 80),
       },
     });
-  }
-
-  private requireWorkspace(): string {
-    const ws = this.workspace();
-    if (!ws) throw new Error("Open a folder first (File → Open Folder). Test cases and reports are stored in it.");
-    return ws;
   }
 
   private async orgWithSecret(name?: string): Promise<OrgConfig> {
@@ -245,7 +253,7 @@ export class ConsolePanel {
         await this.ctx.workspaceState.update(SUITE_KEY, m.file);
         return this.pushState();
       case "suite:new": {
-        const ws = this.requireWorkspace();
+        const ws = this.workspace();
         const slug = String(m.name || "suite").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "suite";
         const file = path.join(ws, "test-cases", `${slug}.sf-tests.yaml`);
         if (fs.existsSync(file)) throw new Error(`${path.basename(file)} already exists.`);
@@ -277,7 +285,7 @@ export class ConsolePanel {
         if (idx >= 0) cases[idx] = tc;
         else cases.push(tc);
         saveSuite(cur.file, { ...cur.suite, cases });
-        if (m.originalId && m.originalId !== tc.id) forgetCase(this.workspace()!, this.suiteKey(cur.file), m.originalId);
+        if (m.originalId && m.originalId !== tc.id) forgetCase(this.workspace(), this.suiteKey(cur.file), m.originalId);
         this.toast("ok", `${tc.id} saved.`);
         return this.pushState();
       }
@@ -285,7 +293,7 @@ export class ConsolePanel {
         const cur = this.loadCurrent();
         if (!cur) return;
         saveSuite(cur.file, { ...cur.suite, cases: cur.suite.cases.filter((c) => !m.ids.includes(c.id)) });
-        for (const id of m.ids) forgetCase(this.workspace()!, this.suiteKey(cur.file), id);
+        for (const id of m.ids) forgetCase(this.workspace(), this.suiteKey(cur.file), id);
         this.toast("info", `Deleted ${m.ids.join(", ")}.`);
         return this.pushState();
       }
@@ -300,7 +308,13 @@ export class ConsolePanel {
       }
 
       case "gen:run":
-        return this.generate(m.prompt, m.count, m.explore);
+        try {
+          return await this.generate(m.prompt, m.count, m.explore);
+        } catch (e) {
+          // Always release the UI's "synthesizing" state, whatever failed.
+          this.post({ type: "gen:result", cases: [], error: (e as Error).message });
+          throw e;
+        }
 
       case "run":
         return this.run(m.ids, m.mode);
@@ -313,10 +327,10 @@ export class ConsolePanel {
         if (m.runDir) await vscode.env.openExternal(vscode.Uri.file(path.join(m.runDir, "report.html")));
         return;
       case "spec:open":
-        if (m.file) await vscode.window.showTextDocument(vscode.Uri.file(path.join(this.requireWorkspace(), m.file)), { viewColumn: vscode.ViewColumn.Beside });
+        if (m.file) await vscode.window.showTextDocument(vscode.Uri.file(path.join(this.workspace(), m.file)), { viewColumn: vscode.ViewColumn.Beside });
         return;
       case "setup:playwright": {
-        const ws = this.requireWorkspace();
+        const ws = this.workspace();
         if (!fs.existsSync(path.join(ws, "package.json"))) {
           fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: path.basename(ws).toLowerCase().replace(/[^a-z0-9-]/g, "-"), private: true }, null, 2));
         }
@@ -325,8 +339,17 @@ export class ConsolePanel {
         term.sendText("npm i -D @playwright/test && npx playwright install chromium");
         return;
       }
-      case "folder:open":
-        return vscode.commands.executeCommand("vscode.openFolder");
+      case "folder:pick": {
+        const pick = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, openLabel: "Use for SF AI Tester", defaultUri: vscode.Uri.file(this.workspace()) });
+        if (!pick?.[0]) return;
+        await this.cfg().update("dataFolder", pick[0].fsPath, vscode.ConfigurationTarget.Global);
+        await this.ctx.workspaceState.update(SUITE_KEY, undefined);
+        this.watch();
+        this.toast("ok", `Data folder: ${pick[0].fsPath}`);
+        return this.pushState();
+      }
+      case "folder:reveal":
+        return vscode.env.openExternal(vscode.Uri.file(this.workspace()));
 
       case "settings:update": {
         const allowed: Record<string, string> = {
@@ -360,7 +383,7 @@ export class ConsolePanel {
 
   private async login(name?: string) {
     if (this.busy) throw new Error("Another operation is in progress.");
-    const ws = this.requireWorkspace();
+    const ws = this.workspace();
     const org = await this.orgWithSecret(name);
     this.setBusy("login");
     try {
@@ -382,7 +405,7 @@ export class ConsolePanel {
   private async generate(prompt: string, count: number, explore: boolean) {
     if (this.busy) throw new Error("Another operation is in progress.");
     if (!prompt?.trim()) throw new Error("Describe the feature or requirement to test.");
-    const ws = this.requireWorkspace();
+    const ws = this.workspace();
     const cur = this.loadCurrent();
     this.setBusy("gen");
     this.abort = new AbortController();
@@ -411,9 +434,6 @@ export class ConsolePanel {
         log: (l) => this.log(l),
       });
       this.post({ type: "gen:result", cases, model });
-    } catch (e) {
-      this.post({ type: "gen:result", cases: [], error: (e as Error).message });
-      throw e;
     } finally {
       this.abort = undefined;
       this.setBusy(null);
@@ -422,7 +442,7 @@ export class ConsolePanel {
 
   private async run(ids: string[], mode: TestMode) {
     if (this.busy) throw new Error("A run is already in progress.");
-    const ws = this.requireWorkspace();
+    const ws = this.workspace();
     const cur = this.loadCurrent();
     if (!cur) return;
     const cases = cur.suite.cases.filter((c) => ids.includes(c.id)).map((c) => ({ ...c, mode: undefined }));
