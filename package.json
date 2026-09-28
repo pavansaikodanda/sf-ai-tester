@@ -1,0 +1,174 @@
+{
+  "name": "sf-ai-tester",
+  "version": "0.1.0",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "npx @vscode/vsce package",
+    "setup": "playwright install chromium && node node_modules/@playwright/mcp/cli.js install-browser chrome-for-testing"
+  },
+  "license": "UNLICENSED",
+  "description": "AI-driven manual and automated testing of Salesforce orgs with Claude Code + Playwright",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.283",
+    "@playwright/mcp": "^0.0.82",
+    "playwright": "^1.63.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
+    "@types/vscode": "~1.90.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "displayName": "SF AI Tester",
+  "publisher": "pavan",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Testing"
+  ],
+  "bin": {
+    "sf-ai-tester": "./dist/cli.js"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "sfAiTester.runTests",
+        "title": "Run Test Cases",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.configureOrg",
+        "title": "Configure Org",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.removeOrg",
+        "title": "Remove Org",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.initProject",
+        "title": "Initialize Test Project",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.cancel",
+        "title": "Cancel Run",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.openLastReport",
+        "title": "Open Last Report",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.login",
+        "title": "Log In to Org (passkey / MFA)",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.browserSettings",
+        "title": "Browser Settings (headless / visible)",
+        "category": "SF AI Tester"
+      },
+      {
+        "command": "sfAiTester.toggleHeadless",
+        "title": "Toggle Headless Test Browser",
+        "category": "SF AI Tester"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "sfAiTester.runTests",
+          "when": "resourceExtname =~ /.(ya?ml|json)$/",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "sfAiTester.runTests",
+          "when": "resourceExtname =~ /.(ya?ml|json)$/"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SF AI Tester",
+      "properties": {
+        "sfAiTester.model": {
+          "type": "string",
+          "default": "",
+          "description": "Claude model id (empty = your Claude Code default, e.g. claude-opus-5 or claude-sonnet-5)."
+        },
+        "sfAiTester.headless": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the test-execution browser headless (true) or visible (false). Also asked at the start of each run and toggleable from the status bar."
+        },
+        "sfAiTester.maxTurns": {
+          "type": "number",
+          "default": 80,
+          "description": "Maximum agent turns per test case."
+        },
+        "sfAiTester.useSubscription": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use your Claude Code login (Pro/Max subscription) and ignore ANTHROPIC_API_KEY."
+        },
+        "sfAiTester.login.browserMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "headed",
+            "headless"
+          ],
+          "default": "headed",
+          "enumDescriptions": [
+            "Try headless first; open a visible window only if Salesforce asks for a passkey/MFA (for orgs without passkeys)",
+            "Show the login window: username & password are typed for you, you verify the passkey (default)",
+            "Never show the login window (fails if a passkey/MFA is required)"
+          ],
+          "description": "How the login browser is shown."
+        },
+        "sfAiTester.login.browser": {
+          "type": "string",
+          "enum": [
+            "default",
+            "msedge",
+            "chrome",
+            "chromium"
+          ],
+          "default": "default",
+          "enumDescriptions": [
+            "Edge on Windows, Chrome elsewhere",
+            "Installed Microsoft Edge",
+            "Installed Google Chrome",
+            "Playwright bundled Chromium"
+          ],
+          "description": "Browser used for login. Installed Edge/Chrome work best with passkeys (Windows Hello, phone QR)."
+        },
+        "sfAiTester.login.timeoutMinutes": {
+          "type": "number",
+          "default": 5,
+          "description": "Minutes to wait for you to finish a passkey/MFA login."
+        },
+        "sfAiTester.login.sessionMaxAgeHours": {
+          "type": "number",
+          "default": 8,
+          "description": "Reuse a saved login session up to this many hours (checked for validity before each run)."
+        }
+      }
+    }
+  }
+}

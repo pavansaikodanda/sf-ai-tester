@@ -1,0 +1,4 @@
+node_modules
+dist
+.sf-ai-tester
+*.vsix

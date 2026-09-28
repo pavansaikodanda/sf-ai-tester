@@ -1,0 +1,6 @@
+src/**
+build.mjs
+tsconfig.json
+.vscode/**
+**/*.map
+.sf-ai-tester/**
