@@ -358,133 +358,247 @@ button.sm { padding: 4px 8px; font-size: 10px; }
 .hero { display: none; }
 
 /* =====================================================================
-   FLIGHT: aviation flight-control game UI. Sky, frosted glass, dark
-   cockpit instruments, red markers, huge thin display type.
+   FLIGHT: futuristic fighter-cockpit HUD. Stratosphere at dusk, wireframe
+   terrain, phosphor-teal HUD symbology, afterburner amber, angular glass.
    ===================================================================== */
 body[data-theme="flight"] {
-  --bg: #5f7a93;
-  --page-bg: linear-gradient(180deg, #9db3c8 0%, #7891ab 34%, #57718c 66%, #34495e 100%);
-  --panel: rgba(255, 255, 255, 0.13);
-  --panel-solid: #3f566d;
-  --deep: #0e1217;
-  --line: rgba(255, 255, 255, 0.26);
-  --line-strong: rgba(255, 255, 255, 0.55);
-  --cyan: #ffffff;
-  --violet: #ff3434;
-  --magenta: #ff3434;
-  --green: #45e28f;
-  --red: #ff3b3b;
-  --amber: #ffc24d;
-  --purple: #b9acff;
-  --text: #ffffff;
-  --muted: rgba(255, 255, 255, 0.7);
-  --on-accent: #101318;
-  --accent-grad: #ffffff;
-  --radius: 26px;
-  --card-bg: rgba(255, 255, 255, 0.1);
-  --modal-bg: rgba(44, 60, 78, 0.9);
-  --term-bg: rgba(14, 18, 23, 0.84);
-  --term-text: #dfe5ec;
-  --term-dim: #7f8995;
-  --queued: #d7e4ff;
-  --ring-a: #ffffff;
-  --ring-b: #ff3434;
-  --display: "Inter", "Segoe UI", sans-serif;
-  --body: "Inter", "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono", Consolas, monospace;
-  font: 500 14px/1.45 var(--body);
+  --bg: #020609;
+  --page-bg: linear-gradient(180deg, #010407 0%, #04101a 38%, #0a2230 62%, #2b2a24 82%, #7a3d12 100%);
+  --panel: rgba(3, 16, 20, 0.8);
+  --panel-solid: #051519;
+  --deep: #020c0d;
+  --line: rgba(88, 245, 196, 0.22);
+  --line-strong: rgba(88, 245, 196, 0.6);
+  --cyan: #58f5c4;
+  --violet: #ff8a1f;
+  --magenta: #ff8a1f;
+  --green: #9dff5c;
+  --red: #ff3b4e;
+  --amber: #ffcc3d;
+  --purple: #b18cff;
+  --text: #e4fff5;
+  --muted: #6ea596;
+  --on-accent: #041210;
+  --accent-grad: linear-gradient(90deg, #ff8a1f, #ffcc3d);
+  --radius: 0px;
+  --card-bg: linear-gradient(135deg, rgba(6, 28, 30, 0.8), rgba(2, 12, 16, 0.72));
+  --modal-bg: rgba(2, 13, 15, 0.95);
+  --term-bg: rgba(1, 8, 8, 0.86);
+  --term-text: #9fe9cf;
+  --term-dim: #3f6f63;
+  --queued: #8fb8ff;
+  --ring-a: #58f5c4;
+  --ring-b: #ff8a1f;
+  --cut: 16px;
+  --display: "Oxanium", "Segoe UI", sans-serif;
+  --body: "Saira Semi Condensed", "Segoe UI", sans-serif;
+  --mono: "Share Tech Mono", Consolas, monospace;
+  font: 500 15px/1.4 var(--body);
 }
-body[data-theme="flight"] .scanlines { display: none; }
-body[data-theme="flight"] #cursor-glow { background: radial-gradient(circle, rgba(255, 255, 255, 0.12), transparent 65%); }
+body[data-theme="flight"] .scanlines { opacity: 0.5; background: repeating-linear-gradient(to bottom, rgba(88, 245, 196, 0.03) 0 1px, transparent 1px 4px); }
+body[data-theme="flight"] #cursor-glow { width: 560px; height: 560px; background: radial-gradient(circle, rgba(255, 138, 31, 0.08), transparent 60%); }
+
+/* angular canopy-glass panels with cut corners and lit edges */
 body[data-theme="flight"] .panel,
-body[data-theme="flight"] .hud,
-body[data-theme="flight"] .card,
-body[data-theme="flight"] .section { backdrop-filter: blur(18px) saturate(1.25); }
-body[data-theme="flight"] .panel:before, body[data-theme="flight"] .panel:after { display: none; }
-body[data-theme="flight"] .panel { box-shadow: 0 20px 50px rgba(20, 32, 48, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-body[data-theme="flight"] .hud { border-radius: 999px; padding: 8px 10px 8px 22px; box-shadow: 0 14px 40px rgba(20, 32, 48, 0.25); }
-body[data-theme="flight"] .hud:after { display: none; }
-body[data-theme="flight"] .logo { font: 700 16px var(--display); letter-spacing: 0.04em; }
-body[data-theme="flight"] .logo .a { color: #fff; text-shadow: none; }
-body[data-theme="flight"] .logo .b { color: var(--violet); text-shadow: none; }
-body[data-theme="flight"] .sub { font: 500 10px var(--body); letter-spacing: 0.18em; color: var(--muted); }
-body[data-theme="flight"] .chip { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.3); font: 600 11px var(--body); letter-spacing: 0.04em; }
-body[data-theme="flight"] .chip.on .dot { background: var(--violet); box-shadow: 0 0 10px var(--violet); }
-body[data-theme="flight"] .chain b { color: #fff; }
+body[data-theme="flight"] .modal {
+  border-radius: 0;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  backdrop-filter: none; /* blur + clip-path on many layers is too slow; tinted glass instead */
+  box-shadow: inset 0 0 0 1px rgba(88, 245, 196, 0.12), inset 0 0 40px rgba(88, 245, 196, 0.05);
+}
+body[data-theme="flight"] .panel:before,
+body[data-theme="flight"] .panel:after {
+  width: 23px; height: 2px; border: 0; border-radius: 0; background: var(--cyan); opacity: 1; box-shadow: 0 0 8px var(--cyan); transform: rotate(-45deg);
+}
+body[data-theme="flight"] .panel:before { top: 7px; left: -3.5px; }
+body[data-theme="flight"] .panel:after { bottom: 7px; right: -3.5px; top: auto; left: auto; background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+body[data-theme="flight"] .panel:hover { border-color: var(--line-strong); box-shadow: inset 0 0 0 1px rgba(88, 245, 196, 0.25), inset 0 0 60px rgba(88, 245, 196, 0.08); }
+
+body[data-theme="flight"] .hud {
+  --cut: 22px; border-radius: 0; border-color: var(--line-strong);
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% 50%, calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 50%);
+  padding: 10px 40px; background: linear-gradient(90deg, rgba(88, 245, 196, 0.1), rgba(3, 16, 20, 0.8) 30%, rgba(3, 16, 20, 0.8) 70%, rgba(255, 138, 31, 0.1));
+}
+body[data-theme="flight"] .hud:after { background: linear-gradient(90deg, transparent, rgba(88, 245, 196, 0.18), transparent); animation-duration: 3.5s; }
+body[data-theme="flight"] .logo { font: 800 20px var(--display); letter-spacing: 0.14em; }
+body[data-theme="flight"] .logo .a { color: var(--cyan); text-shadow: 0 0 14px rgba(88, 245, 196, 0.8); }
+body[data-theme="flight"] .logo .b { color: var(--violet); text-shadow: 0 0 14px rgba(255, 138, 31, 0.9); }
+body[data-theme="flight"] .sub { font: 400 11px var(--mono); letter-spacing: 0.24em; color: var(--muted); }
+body[data-theme="flight"] .chip { border-radius: 0; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); padding: 5px 16px; font: 400 12px var(--mono); letter-spacing: 0.1em; }
+body[data-theme="flight"] .chip.on .dot { background: var(--green); box-shadow: 0 0 10px var(--green); }
+body[data-theme="flight"] .chain b { color: var(--cyan); }
 body[data-theme="flight"] .chain i { color: var(--violet); }
-body[data-theme="flight"] .clock { font: 300 18px var(--display); letter-spacing: 0.02em; color: #fff; }
-body[data-theme="flight"] .ptitle { font: 600 12px var(--display); letter-spacing: 0.16em; color: #fff; }
-body[data-theme="flight"] .ptitle .idx { color: var(--violet); }
-body[data-theme="flight"] button,
-body[data-theme="flight"] .btn { border-radius: 999px; border-color: rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.14); color: #fff; font: 600 11px var(--body); letter-spacing: 0.06em; }
-body[data-theme="flight"] button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.26); box-shadow: 0 6px 20px rgba(20, 32, 48, 0.3); }
-body[data-theme="flight"] button.primary { background: #fff; color: var(--on-accent); box-shadow: 0 8px 24px rgba(20, 32, 48, 0.3); }
-body[data-theme="flight"] button.primary:hover:not(:disabled) { filter: none; background: #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.25), 0 8px 24px rgba(20, 32, 48, 0.35); }
-body[data-theme="flight"] button.danger { background: var(--violet); border-color: var(--violet); color: #fff; }
-body[data-theme="flight"] button.ghost { background: transparent; border-color: transparent; }
-body[data-theme="flight"] .seg { border-radius: 999px; border-color: rgba(255, 255, 255, 0.35); background: rgba(14, 18, 23, 0.25); }
-body[data-theme="flight"] .seg button { border-radius: 999px; border: 0; background: transparent; color: var(--muted); }
-body[data-theme="flight"] .seg button.on { background: #fff; color: var(--on-accent); text-shadow: none; }
-body[data-theme="flight"] .theme-switch button.on { background: #fff; color: var(--on-accent); }
+body[data-theme="flight"] .clock { font: 600 16px var(--display); color: var(--violet); letter-spacing: 0.12em; text-shadow: 0 0 10px rgba(255, 138, 31, 0.7); }
+body[data-theme="flight"] .clock:before { content: "ZULU "; font: 400 10px var(--mono); color: var(--muted); letter-spacing: 0.2em; }
+
+body[data-theme="flight"] .ptitle { font: 700 13px var(--display); letter-spacing: 0.26em; color: var(--cyan); text-shadow: 0 0 10px rgba(88, 245, 196, 0.6); }
+body[data-theme="flight"] .ptitle .idx { font: 400 11px var(--mono); color: var(--on-accent); background: var(--violet); padding: 1px 6px; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+body[data-theme="flight"] .ptitle .grow { height: 6px; background: repeating-linear-gradient(90deg, rgba(88, 245, 196, 0.45) 0 2px, transparent 2px 7px); opacity: 0.6; }
+
+/* controls: parallelogram "switch" buttons, amber ENGAGE primaries */
+body[data-theme="flight"] button, body[data-theme="flight"] .btn {
+  border-radius: 0; clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%); padding: 8px 18px;
+  font: 700 11px var(--display); letter-spacing: 0.16em; color: var(--cyan); background: rgba(88, 245, 196, 0.08); border-color: rgba(88, 245, 196, 0.5);
+}
+body[data-theme="flight"] button.sm { padding: 5px 14px; }
+body[data-theme="flight"] button:hover:not(:disabled) { background: rgba(88, 245, 196, 0.2); box-shadow: inset 0 0 18px rgba(88, 245, 196, 0.35); color: #fff; }
+body[data-theme="flight"] button.primary { background: var(--accent-grad); color: var(--on-accent); box-shadow: none; }
+body[data-theme="flight"] button.primary:hover:not(:disabled) { filter: brightness(1.15); box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.5); color: var(--on-accent); }
+body[data-theme="flight"] button.danger { color: var(--red); border-color: rgba(255, 59, 78, 0.6); background: rgba(255, 59, 78, 0.1); }
+body[data-theme="flight"] button.ghost { clip-path: none; background: transparent; border-color: transparent; padding: 4px 8px; }
+body[data-theme="flight"] .seg { border-radius: 0; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+body[data-theme="flight"] .seg button { clip-path: none; padding: 7px 4px; }
+body[data-theme="flight"] .seg button.on { background: linear-gradient(180deg, rgba(88, 245, 196, 0.35), rgba(88, 245, 196, 0.1)); color: #fff; text-shadow: 0 0 8px var(--cyan); }
+body[data-theme="flight"] .theme-switch { border-radius: 0; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+body[data-theme="flight"] .theme-switch button { clip-path: none; padding: 5px 12px; }
+body[data-theme="flight"] .theme-switch button.on { background: var(--violet); color: var(--on-accent); }
 body[data-theme="flight"] input[type="text"], body[data-theme="flight"] input[type="password"], body[data-theme="flight"] input[type="url"],
 body[data-theme="flight"] input[type="number"], body[data-theme="flight"] select, body[data-theme="flight"] textarea {
-  border-radius: 14px; background: rgba(14, 18, 23, 0.32); border-color: rgba(255, 255, 255, 0.3); color: #fff; font-family: var(--body); }
-body[data-theme="flight"] input:focus, body[data-theme="flight"] select:focus, body[data-theme="flight"] textarea:focus { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2); }
-body[data-theme="flight"] label.f > span { font: 600 10px var(--body); letter-spacing: 0.14em; color: var(--muted); }
-body[data-theme="flight"] .org { border-radius: 18px; background: rgba(255, 255, 255, 0.08); }
-body[data-theme="flight"] .org.active { background: rgba(255, 255, 255, 0.24); box-shadow: none; border-color: #fff; }
-body[data-theme="flight"] .org .ico { border-radius: 50%; background: #fff; color: var(--on-accent); }
-body[data-theme="flight"] .card { border-radius: 22px; }
-body[data-theme="flight"] .card.selected { border-color: var(--violet); box-shadow: 0 0 0 1px var(--violet); }
-body[data-theme="flight"] .cid { border-radius: 999px; color: #fff; background: rgba(14, 18, 23, 0.55); border-color: transparent; }
-body[data-theme="flight"] .ctitle { font: 600 15px var(--display); }
-/* status pods are dark cockpit instruments */
-body[data-theme="flight"] .pod { border-radius: 18px; background: rgba(14, 18, 23, 0.78); border-color: rgba(255, 255, 255, 0.1); }
-body[data-theme="flight"] .pod .ring { background: radial-gradient(circle, #151a20 0 58%, transparent 60%), repeating-conic-gradient(rgba(255, 255, 255, 0.4) 0 3deg, transparent 3deg 30deg); }
-body[data-theme="flight"] .pod .st { font: 300 17px var(--display); letter-spacing: 0.02em; text-shadow: none; }
-body[data-theme="flight"] .pod.running, body[data-theme="flight"] .pod.escalated { --c: #ff3434; }
-body[data-theme="flight"] .pod.idle .st { color: rgba(255, 255, 255, 0.85); }
-body[data-theme="flight"] .runall { border-radius: 22px; background: rgba(14, 18, 23, 0.72); border-color: rgba(255, 255, 255, 0.12); }
-body[data-theme="flight"] .runall-title { font: 600 11px var(--display); letter-spacing: 0.16em; color: #fff; }
-body[data-theme="flight"] .pulse-dot { background: var(--violet); box-shadow: 0 0 12px var(--violet); }
-body[data-theme="flight"] .section { border-radius: 24px; background: rgba(255, 255, 255, 0.07); }
-body[data-theme="flight"] .section-head { border-radius: 24px; background: transparent; }
-body[data-theme="flight"] .section-name { font: 300 22px var(--display); letter-spacing: 0.01em; color: #fff; text-shadow: none; }
-body[data-theme="flight"] .section-name small { font-family: var(--body); letter-spacing: 0.04em; }
-body[data-theme="flight"] .toolbar { border-radius: 999px; border-style: solid; border-color: rgba(255, 255, 255, 0.2); }
-body[data-theme="flight"] .stats-line b { color: #fff; }
-body[data-theme="flight"] .bigring { background: radial-gradient(circle, #1b2027 0 58%, transparent 59%); border-radius: 50%; }
-body[data-theme="flight"] .bigring .orbit { stroke: rgba(255, 255, 255, 0.55); stroke-dasharray: 1 5; stroke-width: 3; animation-duration: 60s; }
-body[data-theme="flight"] .bigring .track { stroke: rgba(255, 255, 255, 0.12); }
-body[data-theme="flight"] .bigring .val { filter: drop-shadow(0 0 6px rgba(255, 52, 52, 0.7)); }
-body[data-theme="flight"] .bigring .pct { font: 300 26px var(--display); text-shadow: none; }
-body[data-theme="flight"] .counter { border-radius: 16px; background: rgba(14, 18, 23, 0.6); border-color: transparent; }
-body[data-theme="flight"] .counter .v { font: 300 24px var(--display); text-shadow: none; }
-body[data-theme="flight"] .term { border-radius: 18px; border-color: transparent; }
-body[data-theme="flight"] .term .h { color: #fff; }
-body[data-theme="flight"] .modal { border-radius: 28px; backdrop-filter: blur(24px); box-shadow: 0 30px 80px rgba(10, 18, 28, 0.5); }
-body[data-theme="flight"] .modal h2 { font: 300 26px var(--display); letter-spacing: 0.01em; color: #fff; }
-body[data-theme="flight"] .modal-back { background: rgba(40, 56, 74, 0.35); }
-body[data-theme="flight"] .toast { border-radius: 999px; background: rgba(14, 18, 23, 0.88); }
-body[data-theme="flight"] .alert { border-radius: 22px; border-color: var(--violet); background: rgba(14, 18, 23, 0.8); }
-body[data-theme="flight"] .alert .big { color: #fff; font-family: var(--display); }
-body[data-theme="flight"] .alert .radar { border-color: var(--violet); }
-body[data-theme="flight"] .alert .radar:after { background: conic-gradient(rgba(255, 52, 52, 0.8), transparent 30%); }
-body[data-theme="flight"] .detail h4 { color: var(--violet); font-family: var(--body); }
-body[data-theme="flight"] .empty .big { color: #fff; font: 300 24px var(--display); letter-spacing: 0.02em; }
-body[data-theme="flight"] .switch .knob { background: #fff; box-shadow: none; }
-body[data-theme="flight"] .switch.on .knob { background: var(--violet); }
-/* hero: giant thin headline plus a heading instrument, as in the reference */
-body[data-theme="flight"] .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 6px 8px 18px; }
-.hero .big1 { font: 600 clamp(40px, 6vw, 76px)/0.92 var(--display); letter-spacing: -0.02em; color: #fff; }
-.hero .big2 { font: 200 clamp(40px, 6vw, 76px)/0.95 var(--display); letter-spacing: -0.02em; color: rgba(255, 255, 255, 0.72); }
-.hero .inst { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 26px; background: rgba(14, 18, 23, 0.8); box-shadow: 0 20px 50px rgba(10, 18, 28, 0.35); }
-.hero .dial { width: 74px; height: 74px; border-radius: 50%; position: relative; flex: none;
-  background: radial-gradient(circle, #ff3434 0 5%, #1b2027 6% 64%, transparent 65%), repeating-conic-gradient(rgba(255, 255, 255, 0.55) 0 1.5deg, transparent 1.5deg 15deg), #0e1217; }
-.hero .dial:after { content: ""; position: absolute; left: 50%; top: 8%; width: 2px; height: 42%; background: #ff3434; transform-origin: 50% 100%; transform: translateX(-50%) rotate(var(--hdg, 0deg)); transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 0 8px #ff3434; }
-.hero .readout { color: #fff; }
-.hero .readout .k { font: 500 10px var(--body); letter-spacing: 0.16em; color: rgba(255, 255, 255, 0.6); }
-.hero .readout .v { font: 300 40px/1 var(--display); padding: 4px 12px; margin: 4px 0; border-radius: 14px; background: rgba(255, 255, 255, 0.08); display: inline-block; }
+  border-radius: 0; background: rgba(1, 10, 10, 0.75); border-color: rgba(88, 245, 196, 0.3); border-width: 0 0 1px 3px; font-family: var(--body); color: var(--text); }
+body[data-theme="flight"] input:focus, body[data-theme="flight"] select:focus, body[data-theme="flight"] textarea:focus { border-color: var(--violet); box-shadow: 0 6px 18px -8px rgba(255, 138, 31, 0.7); }
+body[data-theme="flight"] label.f > span { font: 400 11px var(--mono); letter-spacing: 0.2em; color: var(--muted); }
+body[data-theme="flight"] ::placeholder { color: rgba(110, 165, 150, 0.8); }
+body[data-theme="flight"] .switch .track { border-radius: 0; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
+body[data-theme="flight"] .switch .knob { border-radius: 0; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+body[data-theme="flight"] .switch.on .knob { background: var(--violet); box-shadow: 0 0 10px var(--violet); }
+body[data-theme="flight"] label.f > span.switch { font: 400 11px var(--mono); }
+
+body[data-theme="flight"] .org { border-radius: 0; clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+body[data-theme="flight"] .org.active { background: linear-gradient(90deg, rgba(88, 245, 196, 0.2), transparent); box-shadow: inset 3px 0 0 var(--violet); }
+body[data-theme="flight"] .org .ico { border-radius: 0; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); background: var(--cyan); font: 800 12px var(--display); }
+body[data-theme="flight"] .tag { border-radius: 0; font-family: var(--mono); }
+
+/* sectors, cards and weapon-system status pods */
+body[data-theme="flight"] .runall {
+  border-radius: 0; border-color: rgba(255, 138, 31, 0.6); padding-left: 40px;
+  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  background: linear-gradient(90deg, rgba(255, 138, 31, 0.16), rgba(3, 16, 20, 0.85) 45%);
+}
+body[data-theme="flight"] .runall:before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 28px; background: repeating-linear-gradient(-45deg, var(--violet) 0 6px, #111 6px 12px); opacity: 0.85; }
+body[data-theme="flight"] .runall-title { font: 800 13px var(--display); letter-spacing: 0.22em; color: var(--violet); text-shadow: 0 0 10px rgba(255, 138, 31, 0.6); }
+body[data-theme="flight"] .runall-title:after { content: "  // WEAPONS FREE"; font: 400 10px var(--mono); color: var(--muted); letter-spacing: 0.2em; }
+body[data-theme="flight"] .pulse-dot { border-radius: 0; background: var(--violet); box-shadow: 0 0 12px var(--violet); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); width: 10px; height: 10px; }
+body[data-theme="flight"] .toolbar { border-radius: 0; border-style: solid; border-color: rgba(88, 245, 196, 0.15); background: rgba(1, 8, 8, 0.4); }
+body[data-theme="flight"] .stats-line { font-family: var(--mono); letter-spacing: 0.12em; }
+body[data-theme="flight"] .section { border-radius: 0; border-color: rgba(88, 245, 196, 0.18); background: rgba(1, 10, 10, 0.35); clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px); }
+body[data-theme="flight"] .section-head { border-radius: 0; background: linear-gradient(90deg, rgba(88, 245, 196, 0.12), transparent 70%); }
+body[data-theme="flight"] .section-name { font: 800 16px var(--display); letter-spacing: 0.2em; color: var(--text); text-shadow: 0 0 12px rgba(88, 245, 196, 0.5); }
+body[data-theme="flight"] .section-name:before { content: "SECTOR ▸ "; font: 400 11px var(--mono); color: var(--violet); letter-spacing: 0.2em; }
+body[data-theme="flight"] .section-name small { font-family: var(--mono); letter-spacing: 0.08em; }
+body[data-theme="flight"] .section-body { border-top-color: rgba(88, 245, 196, 0.15); }
+body[data-theme="flight"] .card { border-radius: 0; clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+body[data-theme="flight"] .card.hot:before { border-radius: 0; }
+body[data-theme="flight"] .card.selected { border-color: var(--violet); box-shadow: inset 0 0 0 1px var(--violet), inset 0 0 30px rgba(255, 138, 31, 0.15); }
+body[data-theme="flight"] .cid { border-radius: 0; font-family: var(--mono); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); padding: 3px 10px; }
+body[data-theme="flight"] .ctitle { font: 700 16px var(--display); letter-spacing: 0.03em; }
+body[data-theme="flight"] .ctitle small { font-family: var(--body); }
+body[data-theme="flight"] .pod {
+  border-radius: 0; padding-left: 16px; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 14%, rgba(1, 8, 8, 0.9)), rgba(1, 8, 8, 0.85) 60%);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+body[data-theme="flight"] .pod:before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: repeating-linear-gradient(180deg, var(--c) 0 4px, transparent 4px 6px); box-shadow: 0 0 10px var(--c); }
+body[data-theme="flight"] .pod .ring { border: 0; border-radius: 0; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); background: color-mix(in srgb, var(--c) 22%, transparent); }
+body[data-theme="flight"] .pod.running .ring, body[data-theme="flight"] .pod.escalated .ring { background: conic-gradient(var(--c), transparent 60%); }
+body[data-theme="flight"] .pod .st { font: 800 15px var(--display); letter-spacing: 0.14em; }
+body[data-theme="flight"] .pod .lbl { font-family: var(--mono); }
+body[data-theme="flight"] .pod .mt { font-family: var(--mono); }
+body[data-theme="flight"] .detail h4 { color: var(--violet); font-family: var(--mono); }
+body[data-theme="flight"] .result-box { border-radius: 0; }
+
+/* telemetry: gun-sight ring */
+body[data-theme="flight"] .bigring { border-radius: 50%; background: radial-gradient(circle, rgba(1, 10, 10, 0.9) 0 56%, transparent 57%); }
+body[data-theme="flight"] .bigring .orbit { stroke: rgba(255, 138, 31, 0.6); stroke-dasharray: 2 4; stroke-width: 2; }
+body[data-theme="flight"] .bigring .pct { font: 800 26px var(--display); }
+body[data-theme="flight"] .bigring .cap { font-family: var(--mono); }
+body[data-theme="flight"] .counter { border-radius: 0; clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); background: rgba(1, 8, 8, 0.7); }
+body[data-theme="flight"] .counter .v { font: 800 22px var(--display); }
+body[data-theme="flight"] .counter .k, body[data-theme="flight"] .bar .k { font-family: var(--mono); }
+body[data-theme="flight"] .bar .t { border-radius: 0; height: 8px; background: repeating-linear-gradient(90deg, rgba(88, 245, 196, 0.12) 0 6px, transparent 6px 8px); }
+body[data-theme="flight"] .term { border-radius: 0; font-family: var(--mono); font-size: 12.5px; }
+body[data-theme="flight"] .term .h { color: var(--cyan); }
+body[data-theme="flight"] .term .w { color: var(--violet); }
+
+body[data-theme="flight"] .modal { --cut: 22px; border-color: var(--line-strong); }
+body[data-theme="flight"] .modal h2 { font: 800 18px var(--display); letter-spacing: 0.24em; color: var(--cyan); text-shadow: 0 0 12px rgba(88, 245, 196, 0.6); }
+body[data-theme="flight"] .modal-back { background: rgba(1, 6, 8, 0.72); }
+body[data-theme="flight"] .toast { border-radius: 0; clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); padding-left: 22px; font-family: var(--mono); }
+body[data-theme="flight"] .toast:before { content: "COMMS ▸ "; color: var(--violet); }
+body[data-theme="flight"] .alert { border-radius: 0; clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); padding-left: 30px; }
+body[data-theme="flight"] .alert .big { font-family: var(--display); letter-spacing: 0.24em; }
+body[data-theme="flight"] .alert .big:before { content: "⚠ "; }
+body[data-theme="flight"] .empty { border-radius: 0; }
+body[data-theme="flight"] .empty .big { font: 800 16px var(--display); letter-spacing: 0.24em; }
+body[data-theme="flight"] .scanning .orb { border-radius: 0; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+body[data-theme="flight"] .scanning .orb:after { border-radius: 0; background: conic-gradient(rgba(255, 138, 31, 0.8), transparent 30%); }
+body[data-theme="flight"] .scanning .txt { font-family: var(--display); color: var(--violet); }
+
+/* ---------- cockpit hero: callsign + instrument cluster ---------- */
+body[data-theme="flight"] .hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 4px 6px 16px; }
+.hero .k { font: 400 11px var(--mono); letter-spacing: 0.24em; color: var(--muted); }
+.hero .k b { color: var(--violet); font-weight: 400; }
+.hero .big1 {
+  font: 800 clamp(34px, 5vw, 64px)/1 var(--display); letter-spacing: 0.06em; color: var(--text); margin: 4px 0 6px;
+  text-shadow: 0 0 22px rgba(88, 245, 196, 0.45), 2px 0 rgba(255, 138, 31, 0.35), -2px 0 rgba(88, 245, 196, 0.35);
+  background: linear-gradient(180deg, #fff 30%, #9ff5da 70%, #3fae8c); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hero .big2 { font: 600 15px var(--display); letter-spacing: 0.3em; color: var(--cyan); }
+.hero .big2 .st { padding: 2px 10px; margin-left: 6px; color: var(--on-accent); background: var(--cyan); }
+.hero .big2 .st.hot { background: var(--violet); animation: pulse 0.9s infinite; }
+.hero .cluster { display: flex; gap: 14px; align-items: stretch; }
+.hero .inst {
+  position: relative; width: 132px; height: 132px; flex: none; display: grid; place-items: center; border: 1px solid var(--line-strong);
+  background: rgba(1, 8, 8, 0.82); clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+.hero .inst .lbl { position: absolute; left: 8px; top: 6px; font: 400 9.5px var(--mono); letter-spacing: 0.2em; color: var(--muted); }
+.hero .inst .val { position: absolute; right: 8px; bottom: 6px; font: 800 13px var(--display); color: var(--violet); }
+/* attitude indicator: the ball banks and pitches with the mouse */
+.hero .adi { width: 96px; height: 96px; border-radius: 50%; overflow: hidden; position: relative; border: 2px solid var(--line-strong); box-shadow: 0 0 20px rgba(88, 245, 196, 0.25); }
+.hero .adi .ball {
+  position: absolute; inset: -60%; transition: transform 0.25s ease-out;
+  transform: rotate(var(--roll, 0deg)) translateY(var(--pitch, 0px));
+  background: linear-gradient(180deg, #0d4a6b 0 50%, #6b3a16 50% 100%);
+}
+.hero .adi .ball:before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: #fff; box-shadow: 0 0 6px #fff; }
+.hero .adi .ball:after { content: ""; position: absolute; left: 40%; right: 40%; top: 50%; height: 60px; transform: translateY(-50%);
+  background: repeating-linear-gradient(180deg, transparent 0 9px, rgba(255, 255, 255, 0.7) 9px 10px); }
+.hero .adi .wings { position: absolute; left: 18%; right: 18%; top: calc(50% - 1px); height: 3px; background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+.hero .adi .wings:after { content: ""; position: absolute; left: 50%; top: -3px; width: 8px; height: 8px; transform: translateX(-50%); border-radius: 50%; background: var(--violet); }
+/* heading dial: needle = pass rate */
+.hero .hdg { width: 96px; height: 96px; border-radius: 50%; position: relative;
+  background: radial-gradient(circle, rgba(1, 8, 8, 1) 0 62%, transparent 63%), repeating-conic-gradient(var(--cyan) 0 1.2deg, transparent 1.2deg 10deg), rgba(88, 245, 196, 0.08);
+  box-shadow: 0 0 20px rgba(88, 245, 196, 0.2); }
+.hero .hdg:after { content: ""; position: absolute; left: calc(50% - 1.5px); top: 10%; width: 3px; height: 40%; background: linear-gradient(var(--violet), transparent);
+  transform-origin: 50% 100%; transform: rotate(var(--hdg, 0deg)); transition: transform 1s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.hero .hdg b { position: absolute; inset: 0; display: grid; place-items: center; font: 800 20px var(--display); color: var(--text); text-shadow: 0 0 10px rgba(88, 245, 196, 0.8); }
+/* throttle: segmented vertical gauge = run progress (or pass share when idle) */
+.hero .thr { width: 20px; height: 96px; position: relative; background: repeating-linear-gradient(0deg, rgba(88, 245, 196, 0.12) 0 6px, transparent 6px 8px); }
+.hero .thr span { position: absolute; left: 0; right: 0; bottom: 0; height: var(--thr, 0%); transition: height 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: repeating-linear-gradient(0deg, var(--violet) 0 6px, transparent 6px 8px); filter: drop-shadow(0 0 6px var(--violet)); }
+.hero .inst.wide { width: 170px; }
+.hero .inst.wide .rows { font: 400 11px/1.9 var(--mono); letter-spacing: 0.1em; color: var(--muted); padding-top: 8px; }
+.hero .inst.wide .rows b { color: var(--text); font-weight: 400; float: right; margin-left: 12px; }
+
+/* ---------- target lock reticle, boot sequence, master caution ---------- */
+#lock, #boot, #caution { display: none; }
+body[data-theme="flight"] #lock { display: block; position: fixed; z-index: 40; pointer-events: none; opacity: 0; transition: left 0.16s ease-out, top 0.16s ease-out, width 0.16s ease-out, height 0.16s ease-out, opacity 0.2s; }
+body[data-theme="flight"] #lock.on { opacity: 1; }
+#lock i { position: absolute; width: 14px; height: 14px; border: 2px solid var(--violet); filter: drop-shadow(0 0 4px var(--violet)); }
+#lock i:nth-child(1) { left: -6px; top: -6px; border-right: 0; border-bottom: 0; }
+#lock i:nth-child(2) { right: -6px; top: -6px; border-left: 0; border-bottom: 0; }
+#lock i:nth-child(3) { left: -6px; bottom: -6px; border-right: 0; border-top: 0; }
+#lock i:nth-child(4) { right: -6px; bottom: -6px; border-left: 0; border-top: 0; }
+#lock.on i { animation: lockin 0.35s ease-out; }
+@keyframes lockin { from { transform: scale(2.2); opacity: 0; } }
+#lock span { position: absolute; left: -6px; top: -26px; font: 400 11px var(--mono); letter-spacing: 0.16em; color: var(--on-accent); background: var(--violet); padding: 1px 8px; white-space: nowrap; }
+body[data-theme="flight"] #boot.on { display: grid; position: fixed; inset: 0; z-index: 70; place-items: center; background: rgba(1, 6, 8, 0.92); animation: bootout 0.4s ease-in 1.5s forwards; pointer-events: none; }
+#boot pre { margin: 0; font: 400 14px/1.8 var(--mono); color: var(--cyan); text-shadow: 0 0 8px rgba(88, 245, 196, 0.7); }
+#boot pre b { color: var(--violet); font-weight: 400; }
+#boot .line { opacity: 0; animation: bootline 0.12s steps(2) forwards; }
+@keyframes bootline { to { opacity: 1; } }
+@keyframes bootout { to { opacity: 0; visibility: hidden; } }
+body[data-theme="flight"] #caution.on { display: block; position: fixed; inset: 0; z-index: 65; pointer-events: none; box-shadow: inset 0 0 140px rgba(255, 59, 78, 0.55); animation: caution 1.4s ease-out forwards; }
+#caution span { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); font: 800 14px var(--display); letter-spacing: 0.3em; color: #fff; background: var(--red); padding: 6px 18px; animation: pulse 0.35s steps(1) 4; }
+@keyframes caution { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
 
 /* =====================================================================
    STOIC: minimal and classical. Marble and parchment, ink, bronze.
@@ -621,10 +735,11 @@ body[data-theme="stoic"] .switch .knob { background: var(--text); box-shadow: no
 body[data-theme="stoic"] .switch.on .knob { background: var(--violet); }
 body[data-theme="stoic"] ::-webkit-scrollbar-thumb { background: var(--line-strong); }
 
-body[data-theme="flight"] ::placeholder { color: rgba(255, 255, 255, 0.6); }
 body[data-theme="stoic"] ::placeholder { color: var(--muted); }
 body[data-theme="stoic"] .clock { display: none; }
 
 /* the form-label span rule must not override the switch layout (all themes) */
 label.f > span.switch { display: inline-flex; margin: 6px 0 0; font: 700 10.5px var(--mono); letter-spacing: 0.1em; text-transform: none; color: var(--text); }
-body[data-theme="flight"] label.f > span.switch, body[data-theme="stoic"] label.f > span.switch { font-family: var(--body); }
+body[data-theme="stoic"] label.f > span.switch { font-family: var(--body); }
+
+body[data-theme="flight"] .hud, body[data-theme="flight"] .card, body[data-theme="flight"] .section { backdrop-filter: none; }

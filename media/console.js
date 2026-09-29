@@ -19,6 +19,7 @@
     modal: null,
     gen: { prompt: saved.genPrompt || "", count: 5, explore: false, results: null, busy: false, picked: new Set(), model: "" },
     counts: {},
+    adi: { roll: 0, pitch: 0 },
   };
   const persist = () =>
     vs.setState({ selected: [...ui.selected], expanded: [...ui.expanded], collapsed: [...ui.collapsed], filter: ui.filter, genPrompt: ui.gen.prompt, theme: ui.theme });
@@ -146,10 +147,10 @@
   applyTheme(saved.theme); // before the first state arrives, so there is no flash of the wrong theme
   const subtitle = () =>
     ui.theme === "stoic" ? QUOTES[Math.floor(Date.now() / 86400000) % QUOTES.length]
-    : ui.theme === "flight" ? "SALESFORCE QA · FLIGHT CONTROL"
+    : ui.theme === "flight" ? "SF-AI AVIONICS · COMBAT TEST SYSTEM"
     : "SALESFORCE QA · MISSION CONTROL";
 
-  /** Flight theme only: giant thin headline + heading instrument (pass rate as the heading). */
+  /** Flight theme only: mission callsign + cockpit instrument cluster (attitude, heading = pass rate, throttle = progress). */
   function hero() {
     if (ui.theme !== "flight") return "";
     const t = tally();
@@ -157,12 +158,59 @@
     const pct = executed ? Math.round((t.passed / executed) * 100) : 0;
     const total = (S.suite?.cases || []).length;
     const org = S.orgs.find((o) => o.name === S.activeOrg);
+    const running = S.busy === "run";
+    const thr = running && ui.run?.total ? (ui.run.done / ui.run.total) * 100 : pct;
+    const status = running ? "ENGAGED" : S.busy === "gen" ? "PLOTTING" : S.busy === "login" ? "UPLINKING" : "STANDBY";
     return `<div class="hero">
-      <div><div class="big1">${esc((S.suite?.name || "SF AI").toUpperCase())}</div><div class="big2">${org ? esc(org.name.toUpperCase()) + " ·" : ""} TEST FLIGHT</div></div>
-      <div class="inst">
-        <div class="dial" style="--hdg:${Math.round(pct * 3.6)}deg"></div>
-        <div class="readout"><div class="k">${total} CASES · ${executed} RUNS</div><div class="v">${pct}°</div><div class="k">PASS HEADING · ${esc(modelShort(S.settings.primaryModel))}</div></div>
+      <div>
+        <div class="k">MISSION <b>//</b> ${esc(S.suite?.name || "NO SUITE")} <b>//</b> ${org ? `UPLINK ${esc(org.name.toUpperCase())}` : "NO UPLINK"}</div>
+        <div class="big1">${esc((S.suite?.name || "SF AI").toUpperCase())}</div>
+        <div class="big2">SORTIE ${String(executed).padStart(3, "0")} · ${total} TARGETS<span class="st ${running ? "hot" : ""}">${status}</span></div>
+      </div>
+      <div class="cluster">
+        <div class="inst"><span class="lbl">ATT</span><div class="adi"><div class="ball" id="adi-ball" style="--roll:${ui.adi.roll}deg;--pitch:${ui.adi.pitch}px"></div><div class="wings"></div></div></div>
+        <div class="inst"><span class="lbl">HDG · PASS</span><div class="hdg" style="--hdg:${Math.round(pct * 3.6)}deg"><b>${String(pct).padStart(3, "0")}</b></div></div>
+        <div class="inst"><span class="lbl">THR</span><div class="thr" style="--thr:${Math.round(thr)}%"><span></span></div><span class="val">${Math.round(thr)}%</span></div>
+        <div class="inst wide"><span class="lbl">SYS</span><div class="rows">
+          PRI <b>${esc(modelShort(S.settings.primaryModel))}</b><br>
+          SEC <b>${esc(modelShort(S.settings.fallbackModel))}</b><br>
+          HIT <b>${t.passed}</b> MISS <b>${t.failed}</b><br>
+          JAM <b>${t.blocked}</b> ERR <b>${t.error}</b></div></div>
       </div></div>`;
+  }
+
+  // Flight-only overlays: target lock reticle, avionics boot sequence, master caution.
+  const lock = document.createElement("div");
+  lock.id = "lock";
+  lock.innerHTML = "<i></i><i></i><i></i><i></i><span></span>";
+  const boot = document.createElement("div");
+  boot.id = "boot";
+  const caution = document.createElement("div");
+  caution.id = "caution";
+  caution.innerHTML = "<span>MASTER CAUTION</span>";
+  document.body.append(lock, boot, caution);
+  function bootSequence() {
+    if (reduced) return;
+    const lines = [
+      "SF-AI AVIONICS <b>v0.4</b> ............ BOOT",
+      "INERTIAL NAV ALIGN ............ <b>OK</b>",
+      "HUD SYMBOLOGY ................. <b>OK</b>",
+      "CLAUDE FLIGHT COMPUTER ........ <b>OK</b>",
+      "PLAYWRIGHT WEAPONS BUS ........ <b>ARMED</b>",
+      "UPLINK .......................... <b>READY</b>",
+    ];
+    boot.innerHTML = `<pre>${lines.map((l, i) => `<div class="line" style="animation-delay:${i * 0.18}s">${l}</div>`).join("")}</pre>`;
+    boot.classList.remove("on");
+    void boot.offsetWidth;
+    boot.classList.add("on");
+    setTimeout(() => boot.classList.remove("on"), 2000);
+  }
+  function masterCaution() {
+    if (ui.theme !== "flight" || reduced) return;
+    caution.classList.remove("on");
+    void caution.offsetWidth;
+    caution.classList.add("on");
+    setTimeout(() => caution.classList.remove("on"), 1500);
   }
 
   function hud() {
@@ -532,6 +580,7 @@
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
       case "set:theme":
         // Switch instantly; the host persists it and echoes it back in the next state.
+        if (el.dataset.v === "flight" && ui.theme !== "flight") setTimeout(bootSequence, 0);
         S.settings.theme = el.dataset.v;
         render();
         return post("settings:update", { key: "theme", value: el.dataset.v });
@@ -642,6 +691,29 @@
     setTimeout(() => s.remove(), 600);
   });
 
+  /** Flight: attitude indicator banks/pitches with the mouse; lock-on brackets snap to the hovered pod or card. */
+  function flightPointer(e) {
+    const ball = document.getElementById("adi-ball");
+    if (ball) {
+      ui.adi = { roll: Math.round(((e.clientX / innerWidth) - 0.5) * -50), pitch: Math.round(((e.clientY / innerHeight) - 0.5) * 36) };
+      ball.style.setProperty("--roll", `${ui.adi.roll}deg`);
+      ball.style.setProperty("--pitch", `${ui.adi.pitch}px`);
+    }
+    const target = !ui.modal && (e.target.closest?.(".pod") || e.target.closest?.(".card"));
+    if (!target) { lock.classList.remove("on"); lock.dataset.key = ""; return; }
+    const r = target.getBoundingClientRect();
+    const key = target.dataset.pod || target.dataset.card;
+    Object.assign(lock.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    if (lock.dataset.key !== key) {
+      lock.dataset.key = key;
+      lock.querySelector("span").textContent = `LOCK ▸ ${key.replace(":", " / ").toUpperCase()}`;
+      lock.classList.remove("on");
+      void lock.offsetWidth; // restart the lock-in animation
+    }
+    lock.classList.add("on");
+  }
+  addEventListener("scroll", () => lock.classList.remove("on"), { passive: true });
+
   // card tilt + cursor glow
   const glow = $("#cursor-glow");
   document.addEventListener("pointermove", (e) => {
@@ -650,6 +722,7 @@
     mouse.x = e.clientX;
     mouse.y = e.clientY;
     if (reduced) return;
+    if (ui.theme === "flight") flightPointer(e);
     const card = e.target.closest?.(".card");
     document.querySelectorAll(".card[data-tilt]").forEach((c) => { if (c !== card) { c.style.transform = ""; delete c.dataset.tilt; } });
     if (card && !ui.modal && ui.theme !== "stoic") {
@@ -692,7 +765,11 @@
       case "caseDone": {
         if (ui.run) ui.run.done++;
         const r = m.result;
-        toast(r.status === "passed" ? "ok" : r.status === "failed" ? "error" : "warn", `${r.id} ${r.mode}: ${r.status.toUpperCase()} (${modelShort(r.model)})`);
+        const flightWord = { passed: "SPLASH — TARGET DOWN", failed: "MISS — DEFECT CONFIRMED", blocked: "JAMMED", error: "SYSTEM FAULT" }[r.status];
+        toast(r.status === "passed" ? "ok" : r.status === "failed" ? "error" : "warn", ui.theme === "flight"
+          ? `${r.id} ${r.mode.toUpperCase()}: ${flightWord} (${modelShort(r.model)})`
+          : `${r.id} ${r.mode}: ${r.status.toUpperCase()} (${modelShort(r.model)})`);
+        if (r.status === "failed" || r.status === "error") masterCaution();
         requestAnimationFrame(() => document.querySelector(`[data-pod="${CSS.escape(`${r.id}:${r.mode}`)}"]`)?.classList.add("flash"));
         return;
       }
@@ -734,37 +811,126 @@
     requestAnimationFrame(frame);
   }
 
-  // Flight theme: drifting cloud banks (parallax with the mouse) and a heading tape that follows the cursor.
-  const clouds = Array.from({ length: 16 }, (_, i) => ({ x: Math.random(), y: 0.08 + Math.random() * 0.85, s: 0.6 + Math.random() * 1.6, v: 0.00002 + Math.random() * 0.00005, z: 0.3 + (i % 4) * 0.25 }));
-  function flightFrame(t, d, mx, active) {
-    for (const c of clouds) {
-      c.x += c.v * (active ? 4 : 1) * 16;
-      if (c.x > 1.25) { c.x = -0.25; c.y = 0.08 + Math.random() * 0.85; }
-      const px = c.x * W + (mx / W - 0.5) * -40 * c.z * d;
-      const py = c.y * H;
-      const r = 120 * c.s * d;
-      for (let k = 0; k < 5; k++) {
-        const ox = (k - 2) * r * 0.45, oy = Math.sin(k * 1.7 + c.s) * r * 0.18;
-        const g = ctx.createRadialGradient(px + ox, py + oy, 0, px + ox, py + oy, r * (0.7 + (k % 2) * 0.3));
-        g.addColorStop(0, `rgba(255,255,255,${0.1 * c.z})`);
-        g.addColorStop(1, "rgba(255,255,255,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(px + ox, py + oy, r, 0, 7); ctx.fill();
+  // Flight theme: stratosphere with a 3D wireframe terrain flying toward the viewer (afterburner while a mission
+  // runs) and a live HUD layer - pitch ladder, flight-path marker, heading / speed / altitude tapes - driven by the mouse.
+  const stars = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random() * 0.55, r: Math.random() * 1.2 + 0.2, p: Math.random() * 6 }));
+  const fly = { z: 0, speed: 0, fpmX: 0.5, fpmY: 0.45, roll: 0, alt: 32800 };
+  const HUD = (a) => `rgba(88,245,196,${a})`;
+  const terrainH = (x, z) => {
+    const valley = Math.min(1, Math.abs(x) * 1.6) ** 1.6; // flat corridor down the middle, ridges at the sides
+    return (Math.sin(x * 7.3 + z * 0.9) * 0.5 + Math.sin(x * 17.1 - z * 1.7) * 0.25 + Math.sin(z * 0.45 + x * 3.1) * 0.6 + 1.2) * valley;
+  };
+  function flightFrame(t, d, mx, my, active) {
+    const tx = mx / Math.max(W, 1), ty = my / Math.max(H, 1);
+    fly.speed += ((active ? 0.09 : 0.025) - fly.speed) * 0.02;
+    fly.z += fly.speed;
+    fly.fpmX += ((mx > 0 ? tx : 0.5) - fly.fpmX) * 0.05;
+    fly.fpmY += ((my > 0 ? ty : 0.45) - fly.fpmY) * 0.05;
+    fly.roll += (((mx > 0 ? tx : 0.5) - 0.5) * -0.5 - fly.roll) * 0.05;
+    fly.alt += (active ? 3 : 0.6) * Math.sin(t / 2000);
+    const horizon = H * (0.3 + (fly.fpmY - 0.45) * 0.1);
+
+    // stars (twinkle, fade toward the horizon)
+    for (const s of stars) {
+      const a = (0.35 + 0.35 * Math.sin(t / 700 + s.p)) * (1 - s.y / 0.6);
+      ctx.fillStyle = `rgba(210,255,240,${a})`;
+      ctx.fillRect(s.x * W, s.y * horizon, s.r * d, s.r * d);
+    }
+    // horizon glow
+    const hg = ctx.createLinearGradient(0, horizon - 60 * d, 0, horizon + 40 * d);
+    hg.addColorStop(0, "rgba(255,138,31,0)"); hg.addColorStop(0.7, "rgba(255,138,31,0.18)"); hg.addColorStop(1, "rgba(255,138,31,0)");
+    ctx.fillStyle = hg; ctx.fillRect(0, horizon - 60 * d, W, 100 * d);
+
+    // wireframe terrain: rows of a height field projected in perspective, scrolling toward the viewer
+    const rows = 56, cols = 56, depth = 26, camH = 1.1, fov = W * 0.55, cx = W / 2 + (fly.fpmX - 0.5) * -W * 0.1;
+    const K = (H - horizon) * 0.55; // near rows reach the bottom of the screen
+    const zOff = fly.z % 1;
+    const proj = [];
+    for (let r = 0; r < rows; r++) {
+      const zRel = (r - zOff) * (depth / rows) + 0.6;
+      const zWorld = Math.floor(fly.z) + r;
+      const row = [];
+      for (let c = 0; c <= cols; c++) {
+        const xn = (c / cols - 0.5) * 2;
+        const h = terrainH(xn, zWorld * 0.35);
+        row.push([cx + (xn * fov) / zRel, horizon + ((camH - h * 0.55) * K) / zRel]);
+      }
+      proj.push({ row, fade: 1 - r / rows });
+    }
+    ctx.lineWidth = d;
+    for (const { row, fade } of proj) {
+      ctx.strokeStyle = HUD(0.05 + fade * 0.35);
+      ctx.beginPath();
+      row.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.stroke();
+    }
+    for (let c = 0; c <= cols; c += 2) {
+      ctx.strokeStyle = HUD(0.12);
+      ctx.beginPath();
+      proj.forEach(({ row }, r) => (r ? ctx.lineTo(row[c][0], row[c][1]) : ctx.moveTo(row[c][0], row[c][1])));
+      ctx.stroke();
+    }
+    // afterburner speed streaks while a mission runs
+    if (fly.speed > 0.04) {
+      for (let i = 0; i < 26; i++) {
+        const ang = (i / 26) * Math.PI * 2 + i;
+        const p = ((t / 6 + i * 97) % 400) / 400;
+        const r0 = (40 + p * 900) * d, r1 = r0 + 60 * p * d;
+        ctx.strokeStyle = `rgba(255,170,90,${0.35 * p})`;
+        ctx.beginPath(); ctx.moveTo(W / 2 + Math.cos(ang) * r0, H * 0.5 + Math.sin(ang) * r0 * 0.6);
+        ctx.lineTo(W / 2 + Math.cos(ang) * r1, H * 0.5 + Math.sin(ang) * r1 * 0.6); ctx.stroke();
       }
     }
-    // heading tape along the bottom edge
-    const heading = ((mx / Math.max(W, 1)) * 360 + t / 400) % 360;
-    const y0 = H - 26 * d, step = 12 * d;
-    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.font = `${10 * d}px Inter, sans-serif`; ctx.textAlign = "center"; ctx.lineWidth = d;
-    for (let deg = Math.floor(heading - 60); deg <= heading + 60; deg++) {
+
+    // HUD: pitch ladder rotating with roll, centered on the flight-path marker
+    const fx = fly.fpmX * W, fy = fly.fpmY * H;
+    ctx.save();
+    ctx.translate(W / 2, H * 0.5);
+    ctx.rotate(fly.roll);
+    ctx.strokeStyle = HUD(0.22); ctx.fillStyle = HUD(0.35);
+    ctx.font = `${10 * d}px "Share Tech Mono", monospace`; ctx.textAlign = "left";
+    for (let p = -30; p <= 30; p += 10) {
+      const y = (p + (fly.fpmY - 0.45) * 40) * 7 * d;
+      if (p === 0) { ctx.beginPath(); ctx.moveTo(-W * 0.4, y); ctx.lineTo(W * 0.4, y); ctx.stroke(); continue; }
+      ctx.setLineDash(p < 0 ? [8 * d, 6 * d] : []);
+      ctx.beginPath(); ctx.moveTo(-140 * d, y); ctx.lineTo(-50 * d, y); ctx.lineTo(-50 * d, y + (p > 0 ? 8 : -8) * d);
+      ctx.moveTo(140 * d, y); ctx.lineTo(50 * d, y); ctx.lineTo(50 * d, y + (p > 0 ? 8 : -8) * d); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText(String(Math.abs(p)), 146 * d, y + 4 * d);
+    }
+    ctx.restore();
+    // flight-path marker
+    ctx.strokeStyle = HUD(0.7); ctx.lineWidth = 2 * d;
+    ctx.beginPath(); ctx.arc(fx, fy, 9 * d, 0, 7);
+    ctx.moveTo(fx - 26 * d, fy); ctx.lineTo(fx - 9 * d, fy); ctx.moveTo(fx + 9 * d, fy); ctx.lineTo(fx + 26 * d, fy);
+    ctx.moveTo(fx, fy - 9 * d); ctx.lineTo(fx, fy - 18 * d); ctx.stroke();
+    ctx.lineWidth = d;
+
+    // heading tape (top), speed tape (left), altitude tape (right)
+    const heading = (fly.fpmX * 360 + t / 500) % 360;
+    const y0 = 6 * d, step = 10 * d;
+    ctx.strokeStyle = HUD(0.45); ctx.fillStyle = HUD(0.6); ctx.textAlign = "center";
+    for (let deg = Math.floor(heading - 40); deg <= heading + 40; deg++) {
       const x = W / 2 + (deg - heading) * step;
       const major = ((deg % 10) + 10) % 10 === 0;
-      ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 - (major ? 10 : 5) * d); ctx.stroke();
-      if (major) ctx.fillText(String(((deg % 360) + 360) % 360).padStart(3, "0"), x, y0 + 13 * d);
+      ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + (major ? 9 : 4) * d); ctx.stroke();
+      if (major) ctx.fillText(String(((deg % 360) + 360) % 360).padStart(3, "0"), x, y0 + 20 * d);
     }
-    ctx.fillStyle = "#ff3434";
-    ctx.beginPath(); ctx.moveTo(W / 2, y0 - 12 * d); ctx.lineTo(W / 2 - 5 * d, y0 - 20 * d); ctx.lineTo(W / 2 + 5 * d, y0 - 20 * d); ctx.fill();
+    const speed = Math.round(420 + fly.speed * 6000);
+    const tape = (x, value, unit, alignRight) => {
+      ctx.textAlign = alignRight ? "right" : "left";
+      for (let k = -6; k <= 6; k++) {
+        const y = H * 0.5 + (k * 26 - (value % 26)) * d;
+        ctx.strokeStyle = HUD(0.3 - Math.abs(k) * 0.035);
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (alignRight ? -10 : 10) * d, y); ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(255,138,31,0.9)";
+      ctx.font = `${13 * d}px "Oxanium", sans-serif`;
+      ctx.fillText(`${Math.round(value)} ${unit}`, x + (alignRight ? -14 : 14) * d, H * 0.5 + 4 * d);
+      ctx.font = `${10 * d}px "Share Tech Mono", monospace`;
+    };
+    tape(8 * d, speed, "KT", false);
+    tape(W - 8 * d, fly.alt, "FT", true);
   }
 
   function frame(t) {
@@ -774,7 +940,7 @@
     const active = S?.busy === "run" || S?.busy === "gen";
     if (ui.theme === "stoic" || document.hidden) { looping = false; return; } // Stoic is still; restarted on theme change
     if (ui.theme === "flight") {
-      flightFrame(t, d, mx, active);
+      flightFrame(t, d, mx, my, active);
       requestAnimationFrame(frame);
       return;
     }

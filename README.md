@@ -64,7 +64,7 @@ Switch themes with **NEON / FLIGHT / STOIC** in the console header (or the `sfAi
 | Theme | Look |
 |---|---|
 | **Neon** (default) | Sci-fi mission control: dark space, cyan and violet glow, particle field |
-| **Flight** | Aviation flight-control game UI: sky and drifting clouds, frosted glass, dark cockpit instruments, red markers, a heading tape that follows your mouse |
+| **Flight** | Fighter-cockpit HUD: 3D wireframe terrain (afterburner during runs), pitch ladder and speed/altitude/heading tapes that follow your mouse, attitude indicator, target-lock reticle on hover, avionics boot sequence, master-caution flash on failures |
 | **Stoic** | Minimal: parchment, ink and bronze, Cormorant Garamond and IBM Plex, a daily Stoic quote, no glow or motion |
 
 ### Model escalation
