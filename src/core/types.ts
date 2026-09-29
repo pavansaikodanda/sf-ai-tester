@@ -37,6 +37,8 @@ export interface TestCase {
   /** Overrides the run-level mode for this case */
   mode?: TestMode;
   tags?: string[];
+  /** Group shown in the console (e.g. "Lead Conversion"); defaults to the ID prefix */
+  section?: string;
   /** Test data the agent may use (record names, field values, ...) */
   data?: Record<string, unknown>;
 }

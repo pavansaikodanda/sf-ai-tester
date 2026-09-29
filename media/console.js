@@ -9,6 +9,7 @@
   const ui = {
     selected: new Set(saved.selected || []),
     expanded: new Set(saved.expanded || []),
+    collapsed: new Set(saved.collapsed || []),
     filter: saved.filter || "",
     orgDraft: null,
     showPw: false,
@@ -20,7 +21,7 @@
     counts: {},
   };
   const persist = () =>
-    vs.setState({ selected: [...ui.selected], expanded: [...ui.expanded], filter: ui.filter, genPrompt: ui.gen.prompt });
+    vs.setState({ selected: [...ui.selected], expanded: [...ui.expanded], collapsed: [...ui.collapsed], filter: ui.filter, genPrompt: ui.gen.prompt });
 
   // ---------- utils ----------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -232,11 +233,79 @@
         ${S.busy === "run" ? `<button class="danger sm" data-act="cancel">■ ABORT</button>` : ""}
         ${sel.length ? `<button class="danger sm" data-act="case:delete-sel" ${busy ? "disabled" : ""}>DELETE</button>` : ""}
       </div>
+      ${all.length ? runAllBar(cases, busy) : ""}
       <div class="stats-line">${all.length} CASES · MANUAL <b>${t.manual.passed}/${t.manual.run}</b> PASSED · AUTOMATION <b>${t.automation.passed}/${t.automation.run}</b> PASSED</div>
-      <div class="cards">${cases.map(card).join("") || (all.length ? `<div class="empty">No cases match “${esc(ui.filter)}”.</div>`
+      <div class="cards">${sectioned(cases) || (all.length ? `<div class="empty">No cases match “${esc(ui.filter)}”.</div>`
         : `<div class="empty"><div class="big">MATRIX EMPTY</div>Generate test cases from a requirement, or write one yourself.<br><br>
             <button class="primary" data-act="gen:open">✦ GENERATE WITH AI</button> <button data-act="case:new">＋ NEW CASE</button></div>`)}</div>
     </div>`;
+  }
+
+  /** Section = explicit "section" field, else the ID prefix (ACC-001 -> ACC). */
+  const sectionOf = (c) => (c.section && c.section.trim()) || (c.id.includes("-") ? c.id.split("-")[0] : "GENERAL");
+  const execCount = (ids, mode) => ids.length * (mode === "both" ? 2 : 1);
+
+  function modeStats(cases, m) {
+    const s = { passed: 0, failed: 0, blocked: 0, error: 0 };
+    for (const c of cases) {
+      const st = S.status[c.id]?.[m]?.status;
+      if (st) s[st]++;
+    }
+    return s;
+  }
+  function miniBar(cases, m) {
+    const s = modeStats(cases, m);
+    const n = cases.length || 1;
+    const seg = (k, c) => `<span style="width:${(s[k] / n) * 100}%;background:${c}"></span>`;
+    return `<span class="minibar" title="${m}: ${s.passed} passed, ${s.failed} failed, ${s.blocked} blocked, ${s.error} error">${seg("passed", "var(--green)")}${seg("failed", "var(--red)")}${seg("blocked", "var(--amber)")}${seg("error", "var(--purple)")}</span>`;
+  }
+
+  function runAllBar(cases, busy) {
+    const ids = esc(cases.map((c) => c.id).join(","));
+    const scope = ui.filter.trim() ? "FILTERED" : "ALL";
+    const dis = busy || !cases.length ? "disabled" : "";
+    return `<div class="runall">
+      <div class="runall-title"><span class="pulse-dot"></span>RUN ${scope} · ${cases.length} CASE${cases.length === 1 ? "" : "S"}</div>
+      <div class="row">
+        <button class="sm" data-act="run:ids" data-ids="${ids}" data-mode="manual" data-label="${scope} MANUAL" ${dis}>▶ ${scope} MANUAL</button>
+        <button class="sm" data-act="run:ids" data-ids="${ids}" data-mode="automation" data-label="${scope} AUTOMATION" ${dis}>▶ ${scope} AUTOMATION</button>
+        <button class="primary sm" data-act="run:ids" data-ids="${ids}" data-mode="both" data-label="EVERYTHING" ${dis}>▶▶ RUN EVERYTHING</button>
+        ${S.busy === "run" ? `<button class="danger sm" data-act="cancel">■ ABORT</button>` : ""}
+      </div></div>`;
+  }
+
+  function sectioned(cases) {
+    if (!cases.length) return "";
+    const groups = new Map();
+    for (const c of cases) {
+      const k = sectionOf(c);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(c);
+    }
+    const busy = !!S.busy;
+    let i = 0;
+    return [...groups]
+      .map(([name, list]) => {
+        const ids = esc(list.map((c) => c.id).join(","));
+        const closed = ui.collapsed.has(name);
+        const allSel = list.every((c) => ui.selected.has(c.id));
+        const running = list.some((c) => S.live[`${c.id}:manual`] || S.live[`${c.id}:automation`]);
+        const mp = modeStats(list, "manual").passed;
+        const ap = modeStats(list, "automation").passed;
+        const btn = (mode, label, cls = "") =>
+          `<button class="sm ${cls}" data-act="run:ids" data-ids="${ids}" data-mode="${mode}" data-label="${esc(name)} ${label}" ${busy ? "disabled" : ""}>${mode === "both" ? "▶▶" : "▶"} ${label}</button>`;
+        const body = closed ? "" : list.map((c) => card(c, i++)).join("");
+        return `<section class="section ${running ? "live" : ""}">
+          <div class="section-head">
+            <input type="checkbox" class="check" data-act="sel:section" data-ids="${ids}" ${allSel ? "checked" : ""} title="Select section">
+            <button class="ghost sm" data-act="section:toggle" data-name="${esc(name)}">${closed ? "＋" : "－"}</button>
+            <div class="section-name" data-act="section:toggle" data-name="${esc(name)}">${esc(name)}<small>${list.length} case${list.length === 1 ? "" : "s"} · MANUAL ${mp}/${list.length} ${miniBar(list, "manual")} · AUTO ${ap}/${list.length} ${miniBar(list, "automation")}</small></div>
+            <div class="row">${btn("manual", "MANUAL")}${btn("automation", "AUTO")}${btn("both", "BOTH", "primary")}</div>
+          </div>
+          ${closed ? "" : `<div class="section-body">${body}</div>`}
+        </section>`;
+      })
+      .join("");
   }
 
   function pod(c, mode) {
@@ -267,7 +336,7 @@
         <input type="checkbox" class="check" data-act="sel:one" data-id="${esc(c.id)}" ${ui.selected.has(c.id) ? "checked" : ""}>
         <span class="cid">${esc(c.id)}</span>
         <div class="ctitle" data-act="case:expand" data-id="${esc(c.id)}">${esc(c.title)}<small>${c.steps.length} steps · ${c.expected.length} checks${(c.tags || []).length ? " · " + c.tags.map(esc).join(" · ") : ""}</small></div>
-        <div class="cactions"><button class="ghost sm" data-act="case:expand" data-id="${esc(c.id)}">${open ? "▴" : "▾"}</button><button class="ghost sm" data-act="case:edit" data-id="${esc(c.id)}" title="Edit">✎</button><button class="ghost sm" data-act="case:delete" data-id="${esc(c.id)}" title="Delete">✕</button></div>
+        <div class="cactions"><button class="ghost sm" data-act="case:expand" data-id="${esc(c.id)}">${open ? "－" : "＋"}</button><button class="ghost sm" data-act="case:edit" data-id="${esc(c.id)}" title="Edit">✎</button><button class="ghost sm" data-act="case:delete" data-id="${esc(c.id)}" title="Delete">✕</button></div>
       </div>
       <div class="pods">${pod(c, "manual")}${pod(c, "automation")}</div>
       ${open ? `<div class="detail">
@@ -354,6 +423,8 @@
     openModal(`<h2>${isNew ? "NEW TEST CASE" : `EDIT ${esc(c.id)}`}</h2>
       <div class="two"><label class="f"><span>ID</span><input type="text" id="e-id" value="${esc(c.id)}"></label>
       <label class="f"><span>Tags (comma separated)</span><input type="text" id="e-tags" value="${esc((c.tags || []).join(", "))}"></label></div>
+      <label class="f"><span>Section (groups cases; empty = ID prefix)</span><input type="text" id="e-section" list="e-sections" value="${esc(c.section || "")}" placeholder="${esc(c.id.includes("-") ? c.id.split("-")[0] : "GENERAL")}">
+        <datalist id="e-sections">${[...new Set((S.suite?.cases || []).map(sectionOf))].map((s) => `<option value="${esc(s)}">`).join("")}</datalist></label>
       <label class="f"><span>Title</span><input type="text" id="e-title" value="${esc(c.title)}" placeholder="Create a new Account"></label>
       <label class="f"><span>Description</span><input type="text" id="e-desc" value="${esc(c.description || "")}"></label>
       <label class="f"><span>Preconditions — one per line</span><textarea id="e-pre" rows="2">${esc((c.preconditions || []).join("\n"))}</textarea></label>
@@ -391,8 +462,8 @@
       <div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="primary" data-act="prompt:ok">CONFIRM</button></div>`);
     ui.onPrompt = onOk;
   }
-  function confirmBox(text, onOk) {
-    openModal(`<h2>CONFIRM</h2><p>${esc(text)}</p><div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="danger" data-act="confirm:ok">CONFIRM</button></div>`);
+  function confirmBox(text, onOk, okLabel) {
+    openModal(`<h2>${okLabel ? "LAUNCH SEQUENCE" : "CONFIRM"}</h2><p>${esc(text)}</p><div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="${okLabel ? "primary" : "danger"}" data-act="confirm:ok">${okLabel || "CONFIRM"}</button></div>`);
     ui.onConfirm = onOk;
   }
 
@@ -432,7 +503,7 @@
       case "case:delete": return confirmBox(`Delete test case ${id}?`, () => post("case:delete", { ids: [id] }));
       case "case:delete-sel": { const ids = [...ui.selected]; return confirmBox(`Delete ${ids.length} selected test case(s)?`, () => { ui.selected.clear(); persist(); post("case:delete", { ids }); }); }
       case "editor:save": {
-        const tc = { id: $("#e-id").value, title: $("#e-title").value, description: $("#e-desc").value, preconditions: lines("#e-pre"), steps: lines("#e-steps"), expected: lines("#e-exp"), tags: $("#e-tags").value.split(",").map((s) => s.trim()).filter(Boolean) };
+        const tc = { id: $("#e-id").value, title: $("#e-title").value, description: $("#e-desc").value, preconditions: lines("#e-pre"), steps: lines("#e-steps"), expected: lines("#e-exp"), tags: $("#e-tags").value.split(",").map((s) => s.trim()).filter(Boolean), section: $("#e-section").value.trim() || undefined };
         ui.pendingClose = true;
         return post("case:save", { case: tc, originalId: el.dataset.orig || undefined });
       }
@@ -442,6 +513,22 @@
         return startRun([id], el.dataset.mode);
       }
       case "run:sel": return startRun([...ui.selected].filter((i) => find(i)), el.dataset.mode);
+      case "run:ids": {
+        const ids = el.dataset.ids.split(",").filter((i) => find(i));
+        const n = execCount(ids, el.dataset.mode);
+        if (n > 6) return confirmBox(`Run ${el.dataset.label}: ${n} executions across ${ids.length} case(s)? Each one usually takes 1–3 minutes.`, () => startRun(ids, el.dataset.mode), "LAUNCH");
+        return startRun(ids, el.dataset.mode);
+      }
+      case "section:toggle": {
+        const n = el.dataset.name;
+        ui.collapsed.has(n) ? ui.collapsed.delete(n) : ui.collapsed.add(n);
+        persist();
+        return render();
+      }
+      case "sel:section":
+        for (const i of el.dataset.ids.split(",")) el.checked ? ui.selected.add(i) : ui.selected.delete(i);
+        persist();
+        return render();
       case "cancel": return post("cancel");
       case "report:open": return post("report:open", { runDir: el.dataset.dir });
       case "spec:open": return post("spec:open", { file: el.dataset.file });

@@ -2,3 +2,8 @@ node_modules
 dist
 .sf-ai-tester
 *.vsix
+
+# Test data created when this folder is used as the SF AI Tester data folder
+/test-cases/
+/tests/
+/playwright.sf-ai.config.ts

@@ -37,6 +37,7 @@ const CASES_SCHEMA = {
           steps: { type: "array", items: { type: "string" } },
           expected: { type: "array", items: { type: "string" } },
           tags: { type: "array", items: { type: "string" } },
+          section: { type: "string" },
         },
       },
     },
@@ -56,6 +57,7 @@ Guidelines:
 - Cover the happy path first, then validation rules, negative paths, permissions and edge cases.
 - Steps must be concrete UI actions in Salesforce Lightning Experience (tabs, buttons, field labels) that a
   tester can follow literally. Expected results must be observable and checkable.
+- Set "section" to the feature area each case belongs to (e.g. "Lead Conversion"), identical for related cases.
 - Prefix any record names the tests create with "AI-TEST".
 - ids: short, uppercase, letters/digits/dashes (e.g. OPP-003); do NOT reuse: ${req.existingIds.join(", ") || "(none)"}.
 ${

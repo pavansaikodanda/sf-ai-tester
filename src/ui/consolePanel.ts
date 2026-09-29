@@ -543,6 +543,7 @@ function normaliseCase(c: any): TestCase {
     steps: list(c.steps),
     expected: list(c.expected),
     tags: list(c.tags),
+    section: c.section ? String(c.section).trim() : undefined,
   };
   if (!tc.id) throw new Error("Test case id is required.");
   if (!tc.title) throw new Error("Title is required.");

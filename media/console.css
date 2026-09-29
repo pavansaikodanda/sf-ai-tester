@@ -321,3 +321,19 @@ button.sm { padding: 4px 8px; font-size: 10px; }
 @media (prefers-reduced-motion: reduce) {
   *, *:before, *:after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- run-all bar & sections ---------- */
+.runall { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 10px; border-radius: 8px;
+  border: 1px solid var(--line-strong); background: linear-gradient(90deg, rgba(30, 227, 255, 0.1), rgba(180, 76, 255, 0.08)); position: relative; overflow: hidden; }
+.runall:after { content: ""; position: absolute; top: 0; bottom: 0; width: 25%; left: -25%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent); animation: sweep 5s linear infinite; pointer-events: none; }
+.runall-title { font: 700 11px var(--display); letter-spacing: 0.2em; color: var(--cyan); display: flex; align-items: center; gap: 8px; }
+.pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); animation: pulse 1.6s infinite; }
+.section { border: 1px solid var(--line); border-radius: 10px; background: rgba(2, 6, 14, 0.35); }
+.section.live { border-color: var(--cyan); box-shadow: 0 0 20px rgba(30, 227, 255, 0.12); }
+.section-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px;
+  background: linear-gradient(90deg, rgba(180, 76, 255, 0.1), transparent 60%); }
+.section-body { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-top: 1px dashed var(--line); }
+.section-name { flex: 1; min-width: 160px; font: 700 13px var(--display); letter-spacing: 0.16em; color: var(--violet); cursor: pointer; text-shadow: 0 0 10px rgba(180, 76, 255, 0.5); }
+.section-name small { display: block; font: 600 10.5px var(--mono); letter-spacing: 0.06em; color: var(--muted); text-shadow: none; margin-top: 2px; }
+.minibar { display: inline-flex; width: 60px; height: 5px; border-radius: 3px; overflow: hidden; background: rgba(30, 227, 255, 0.1); vertical-align: middle; }
+.minibar span { height: 100%; transition: width 0.6s; }
