@@ -220,10 +220,12 @@ export async function runCaseWithAgent(
   let costUsd = 0;
   let turns = 0;
   let failure = "";
+  const trail: string[] = [];
 
   try {
     for await (const msg of query({ prompt, options })) {
       logMessage(msg, ctx.log);
+      recordTrail(msg, trail);
       if (msg.type === "result") {
         costUsd = msg.total_cost_usd;
         turns = msg.num_turns;
@@ -238,7 +240,7 @@ export async function runCaseWithAgent(
     failure = ctx.abort.signal.aborted ? "Cancelled" : `Agent error: ${(e as Error).message}`;
   }
 
-  const base = { id: tc.id, title: tc.title, mode, durationMs: Date.now() - started, costUsd, turns };
+  const base = { id: tc.id, title: tc.title, mode, durationMs: Date.now() - started, costUsd, turns, trail: trail.slice(-TRAIL_MAX) };
   if (!verdict) {
     return { ...base, status: "error", summary: failure, steps: [], defects: [], evidence: [] };
   }
@@ -259,6 +261,21 @@ function collectEvidence(items: string[], ctx: AgentContext): string[] {
     out.push(name);
   }
   return out;
+}
+
+/** Keeps what the agent actually did (tool calls + short reasoning notes) for failure documentation. */
+const TRAIL_MAX = 80;
+function recordTrail(msg: SDKMessage, trail: string[]) {
+  if (msg.type !== "assistant") return;
+  for (const block of msg.message.content) {
+    if (block.type === "tool_use" && block.name !== "StructuredOutput" && block.name !== "ToolSearch") {
+      trail.push(`${block.name.replace("mcp__playwright__", "browser:")} ${brief(block.input)}`);
+    } else if (block.type === "text" && block.text.trim()) {
+      const t = block.text.trim().replace(/s+/g, " ");
+      trail.push(`» ${t.length > 220 ? t.slice(0, 220) + "…" : t}`);
+    }
+  }
+  if (trail.length > TRAIL_MAX * 2) trail.splice(0, trail.length - TRAIL_MAX);
 }
 
 function logMessage(msg: SDKMessage, log: (m: string) => void) {

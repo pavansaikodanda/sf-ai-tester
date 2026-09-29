@@ -83,8 +83,10 @@ export interface CaseResult extends AgentVerdict {
   turns: number;
   /** Model that produced this verdict */
   model?: string;
+  /** What the agent actually did (tool calls and short notes), most recent last */
+  trail?: string[];
   /** Models tried, in order, with their verdicts */
-  attempts?: { model: string; status: Status; summary: string }[];
+  attempts?: { model: string; status: Status; summary: string; trail?: string[] }[];
 }
 
 export interface RunOptions {

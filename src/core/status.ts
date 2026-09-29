@@ -18,7 +18,7 @@ export type SuiteStatus = Record<string, { manual?: ModeStatus; automation?: Mod
 
 const file = (workspaceDir: string) => path.join(workspaceDir, ".sf-ai-tester", "status.json");
 
-function readAll(workspaceDir: string): Record<string, SuiteStatus> {
+export function readAll(workspaceDir: string): Record<string, SuiteStatus> {
   try {
     return JSON.parse(fs.readFileSync(file(workspaceDir), "utf8"));
   } catch {

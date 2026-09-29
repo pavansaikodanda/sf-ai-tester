@@ -6,7 +6,8 @@ import { loadSuite, saveSuite } from "../core/suite";
 import { runSuite } from "../core/runner";
 import { authenticate } from "../core/auth";
 import { generateCases } from "../core/generate";
-import { readStatus, recordResult, forgetCase } from "../core/status";
+import { readStatus, recordResult, forgetCase, readAll } from "../core/status";
+import { collectReport, writeExcel, writePdf } from "../core/export";
 import { LoginOptions, OrgConfig, TestCase, TestMode, TestSuite } from "../core/types";
 import { SAMPLE_SUITE } from "../sample";
 
@@ -349,6 +350,8 @@ export class ConsolePanel {
         this.toast("ok", `Data folder: ${pick[0].fsPath}`);
         return this.pushState();
       }
+      case "export":
+        return this.exportReport(m.scope, m.formats, m.screenshots);
       case "folder:reveal":
         return vscode.env.openExternal(vscode.Uri.file(this.workspace()));
 
@@ -365,6 +368,41 @@ export class ConsolePanel {
         return;
       }
     }
+  }
+
+  /** Downloadable report across suites: Excel workbook and/or PDF document with failure write-ups. */
+  private async exportReport(scope: "all" | "current", formats: string[], screenshots: boolean) {
+    const ws = this.workspace();
+    const files = scope === "current" ? [this.suiteFile()!].filter(Boolean) : this.suites();
+    if (!files.length) throw new Error("No test suites to export.");
+    if (!formats?.length) throw new Error("Pick at least one format.");
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    const first = formats.includes("xlsx") ? "xlsx" : "pdf";
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), "Downloads", `SF-AI-Test-Report-${stamp}.${first}`)),
+      filters: first === "xlsx" ? { "Excel workbook": ["xlsx"] } : { "PDF document": ["pdf"] },
+      saveLabel: formats.length > 1 ? "Save report (Excel + PDF)" : "Save report",
+    });
+    if (!target) return;
+    const base = target.fsPath.replace(/.(xlsx|pdf)$/i, "");
+    const written: string[] = [];
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "SF AI Tester: building report" }, async (progress) => {
+      const data = collectReport(ws, files, readAll(ws));
+      if (formats.includes("xlsx")) {
+        progress.report({ message: "Excel workbook..." });
+        await writeExcel(data, `${base}.xlsx`);
+        written.push(`${base}.xlsx`);
+      }
+      if (formats.includes("pdf")) {
+        progress.report({ message: "PDF document..." });
+        await writePdf(data, `${base}.pdf`, { screenshots });
+        written.push(`${base}.pdf`);
+      }
+    });
+    this.toast("ok", `Report saved: ${written.map((f) => path.basename(f)).join(" + ")}`);
+    const pick = await vscode.window.showInformationMessage(`SF AI Tester report saved (${written.map((f) => path.extname(f).slice(1).toUpperCase()).join(" + ")}).`, "Open", "Show in Folder");
+    if (pick === "Open") for (const f of written) await vscode.env.openExternal(vscode.Uri.file(f));
+    if (pick === "Show in Folder") await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(written[0]));
   }
 
   private async deleteOrg(name: string) {

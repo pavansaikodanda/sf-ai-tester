@@ -58,6 +58,19 @@ Click the **SF AI Tester** icon in the activity bar (or **$(rocket) SF AI Tester
 The **Visible / Headless** switch in the header controls the test browser. Test cases are stored as YAML in
 `test-cases/`, so you can also edit them by hand or keep them in git.
 
+### Export report
+Click **EXPORT REPORT** in the Test Matrix (or run `node dist/cli.js export` in your data folder) to download a summary of
+all suites ("sheets") or just the current one:
+
+- **Excel workbook (.xlsx):** a *Summary* sheet (manual and automation passed / failed / blocked / error / not run and pass
+  rates per suite, plus totals), one sheet per suite, a *Failure Analysis* sheet (what was tried step by step with what the AI
+  observed, expected results, the model attempt chain, the agent action log, defects and evidence) and a *Defects* register.
+- **PDF document:** an overview, results by suite, and a documented write-up for every run that did not pass, optionally with
+  embedded screenshots.
+
+Every run records the agent's action trail (browser actions, commands and reasoning notes), so even a run that errors out
+before reaching a verdict documents what it tried.
+
 ### Themes
 Switch themes with **NEON / FLIGHT / STOIC** in the console header (or the `sfAiTester.theme` setting):
 

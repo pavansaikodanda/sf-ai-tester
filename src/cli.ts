@@ -8,11 +8,15 @@
  *
  *   sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--login auto|headed|headless] [--models haiku-id,sonnet-id] [--max-turns N] [--api-key]
  *   sf-ai-tester auth [--login auto|headed|headless]    # saves a session so generated specs can run with plain `npx playwright test`
+ *   sf-ai-tester export [--out <path-without-extension>] [--format xlsx,pdf] [--no-screenshots]   # summary of all suites in test-cases/
  */
 import * as path from "path";
 import { loadSuite } from "./core/suite";
 import { runSuite } from "./core/runner";
 import { authenticate } from "./core/auth";
+import { collectReport, writeExcel, writePdf } from "./core/export";
+import { readAll } from "./core/status";
+import * as fs from "fs";
 import { LoginOptions, OrgConfig, TestMode } from "./core/types";
 
 function arg(name: string): string | undefined {
@@ -41,6 +45,19 @@ async function main() {
   const [cmd, file] = process.argv.slice(2);
   const workspaceDir = process.cwd();
   const headless = !flag("headed");
+
+  if (cmd === "export") {
+    const dir = path.join(workspaceDir, "test-cases");
+    const suites = fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => /.ya?ml$/.test(x)).map((x) => path.join(dir, x)) : [];
+    if (!suites.length) throw new Error(`No suites found in ${dir}`);
+    const base = arg("out") ?? path.join(workspaceDir, `SF-AI-Test-Report-${new Date().toISOString().slice(0, 10)}`);
+    const formats = (arg("format") ?? "xlsx,pdf").split(",");
+    const data = collectReport(workspaceDir, suites, readAll(workspaceDir));
+    if (formats.includes("xlsx")) { await writeExcel(data, `${base}.xlsx`); console.log(`wrote ${base}.xlsx`); }
+    if (formats.includes("pdf")) { await writePdf(data, `${base}.pdf`, { screenshots: !flag("no-screenshots") }); console.log(`wrote ${base}.pdf`); }
+    return;
+  }
+
   const org = orgFromEnv();
   const login: LoginOptions = {
     browserMode: (arg("login") as LoginOptions["browserMode"]) ?? "auto",
@@ -55,7 +72,7 @@ async function main() {
     return;
   }
   if (cmd !== "run" || !file) {
-    console.log("usage: sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--models a,b] | sf-ai-tester auth");
+    console.log("usage: sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--models a,b] | sf-ai-tester auth | sf-ai-tester export [--out path] [--format xlsx,pdf]");
     process.exit(2);
   }
 

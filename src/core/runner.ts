@@ -91,7 +91,7 @@ export async function runSuite(
           result = await verifySpec(result, opts.workspaceDir, auth, log);
         }
         result.model = model || "default";
-        attempts.push({ model: result.model, status: result.status, summary: result.summary });
+        attempts.push({ model: result.model, status: result.status, summary: result.summary, trail: result.trail });
         const next = models[i + 1];
         if (result.status === "passed" || !next || abort.signal.aborted) break;
         const reason = `${model || "default"} reported ${result.status}: ${result.summary.slice(0, 200)}`;

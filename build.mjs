@@ -7,11 +7,11 @@ const common = {
   target: "node20",
   sourcemap: true,
   // Loaded from node_modules at runtime: the SDK ships the Claude Code binary, Playwright ships browsers.
-  external: ["vscode", "@anthropic-ai/claude-agent-sdk", "playwright", "playwright-core", "@playwright/*"],
+  external: ["vscode", "@anthropic-ai/claude-agent-sdk", "playwright", "playwright-core", "@playwright/*", "exceljs"],
 };
 const ctxs = await Promise.all([
   esbuild.context({ ...common, entryPoints: ["src/extension.ts"], outfile: "dist/extension.js" }),
-  esbuild.context({ ...common, entryPoints: ["src/cli.ts"], outfile: "dist/cli.js", banner: { js: "#!/usr/bin/env node" } }),
+  esbuild.context({ ...common, entryPoints: ["src/cli.ts"], outfile: "dist/cli.js" }),
 ]);
 if (process.argv.includes("--watch")) {
   await Promise.all(ctxs.map((c) => c.watch()));

@@ -303,6 +303,7 @@
     const t = tally();
     return `<div class="panel">
       <div class="ptitle"><span class="idx">03</span>TEST MATRIX<span class="grow"></span>
+        <button class="sm" data-act="export:open" title="Download an Excel / PDF summary of all suites">⤓ EXPORT REPORT</button>
         <button class="sm" data-act="gen:open" ${busy ? "disabled" : ""}>✦ GENERATE WITH AI</button>
         <button class="sm" data-act="case:new">＋ NEW CASE</button></div>
       <div class="suitebar">
@@ -546,6 +547,25 @@
     openModal(`<h2>✦ AI TEST SYNTHESIS</h2>${body}`);
   }
 
+  /** Export dialog: scope, formats and whether to embed screenshots in the PDF. */
+  const exp = { scope: "all", xlsx: true, pdf: true, screenshots: true };
+  function exporter() {
+    const seg = (key, v, l) => `<button class="${exp[key] === v ? "on" : ""}" data-act="export:set" data-k="${key}" data-v="${v}">${l}</button>`;
+    const chk = (key, l, d) => `<label class="gen-item" style="align-items:flex-start;cursor:pointer"><input type="checkbox" class="check" data-act="export:toggle" data-k="${key}" ${exp[key] ? "checked" : ""}><div><div class="t">${l}</div><div class="muted" style="font-size:12.5px">${d}</div></div></label>`;
+    const nSuites = exp.scope === "all" ? S.suites.length : 1;
+    openModal(`<h2>⤓ EXPORT REPORT</h2>
+      <label class="f"><span>Scope</span></label>
+      <div class="seg">${seg("scope", "all", `ALL SUITES (${S.suites.length})`)}${seg("scope", "current", "THIS SUITE")}</div>
+      <label class="f"><span>Formats</span></label>
+      <div class="gen-list" style="margin-top:0">
+        ${chk("xlsx", "Excel workbook (.xlsx)", "Summary sheet, one sheet per suite, Failure Analysis (what was tried, step by step) and a Defect register.")}
+        ${chk("pdf", "PDF document", "Formal report: overview, results by suite and a documented write-up for every failure.")}
+        ${exp.pdf ? chk("screenshots", "Embed screenshots in the PDF", "Up to 4 evidence screenshots per failure.") : ""}
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:12px">Covers ${nSuites} suite${nSuites === 1 ? "" : "s"} using each case's latest manual and automation result.</div>
+      <div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="primary" data-act="export:go" ${exp.xlsx || exp.pdf ? "" : "disabled"}>⤓ EXPORT</button></div>`);
+  }
+
   function prompter(title, label, value, onOk) {
     openModal(`<h2>${esc(title)}</h2><label class="f"><span>${esc(label)}</span><textarea id="p-val" rows="3">${esc(value || "")}</textarea></label>
       <div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="primary" data-act="prompt:ok">CONFIRM</button></div>`);
@@ -629,6 +649,12 @@
       case "spec:open": return post("spec:open", { file: el.dataset.file });
       case "log:clear": term.innerHTML = ""; return;
       case "gen:open": ui.gen.results = null; return generator();
+      case "export:open": return exporter();
+      case "export:set": exp[el.dataset.k] = el.dataset.v; return exporter();
+      case "export:toggle": exp[el.dataset.k] = el.checked; return exporter();
+      case "export:go":
+        closeModal();
+        return post("export", { scope: exp.scope, formats: ["xlsx", "pdf"].filter((f) => exp[f]), screenshots: exp.screenshots });
       case "gen:explore": ui.gen.prompt = $("#g-prompt")?.value ?? ui.gen.prompt; ui.gen.explore = !ui.gen.explore; return generator();
       case "gen:run": return runGen();
       case "gen:back": ui.gen.results = null; return generator();
