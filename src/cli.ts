@@ -70,7 +70,7 @@ async function main() {
       toolRoot: path.resolve(__dirname, ".."),
       headless,
       login,
-      models: (arg("models") ?? "claude-haiku-4-5,claude-sonnet-5").split(",").map((m) => m.trim()).filter(Boolean),
+      models: (arg("models") ?? "claude-haiku-4-5,claude-sonnet-5-5").split(",").map((m) => m.trim()).filter(Boolean),
       maxTurns: Number(arg("max-turns") ?? 80),
       useSubscription: !flag("api-key"),
     },

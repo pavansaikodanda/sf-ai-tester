@@ -21,7 +21,7 @@
     counts: {},
   };
   const persist = () =>
-    vs.setState({ selected: [...ui.selected], expanded: [...ui.expanded], collapsed: [...ui.collapsed], filter: ui.filter, genPrompt: ui.gen.prompt });
+    vs.setState({ selected: [...ui.selected], expanded: [...ui.expanded], collapsed: [...ui.collapsed], filter: ui.filter, genPrompt: ui.gen.prompt, theme: ui.theme });
 
   // ---------- utils ----------
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -45,7 +45,7 @@
   const LABEL = { idle: "STANDBY", queued: "QUEUED", running: "RUNNING", escalated: "ESCALATED", passed: "PASSED", failed: "FAILED", blocked: "BLOCKED", error: "ERROR" };
   const MODELS = [
     ["claude-haiku-4-5", "Haiku 4.5 — fast, follows instructions"],
-    ["claude-sonnet-5", "Sonnet 5 — stronger reasoning"],
+    ["claude-sonnet-5-5", "Sonnet 5.5 — stronger reasoning"],
     ["claude-opus-5", "Opus 5 — most thorough"],
   ];
 
@@ -109,7 +109,8 @@
     if (!S) return;
     const app = $("#app");
     const scroll = window.scrollY;
-    app.innerHTML = [alertBanner(), hud(), infoBanners(), `<div class="grid">
+    applyTheme(S.settings.theme);
+    app.innerHTML = [alertBanner(), hud(), hero(), infoBanners(), `<div class="grid">
       <div class="col">${orgPanel()}${paramsPanel()}</div>
       <div class="col">${matrixPanel()}</div>
       <div class="col col-right">${telemetryPanel()}${logPanel()}</div>
@@ -125,17 +126,57 @@
     return `<div class="alert"><div class="radar"></div><div><div class="big">AWAITING PILOT INPUT</div><div>${esc(ui.needsUser)}</div></div></div>`;
   }
 
+  // ---------- themes ----------
+  const THEMES = [["neon", "NEON"], ["flight", "FLIGHT"], ["stoic", "STOIC"]];
+  const QUOTES = [
+    "“The impediment to action advances action. What stands in the way becomes the way.” — Marcus Aurelius",
+    "“It is not that we have a short time to live, but that we waste a lot of it.” — Seneca",
+    "“First say to yourself what you would be; then do what you have to do.” — Epictetus",
+    "“Waste no more time arguing what a good test should be. Be one.” — after Marcus Aurelius",
+  ];
+  function applyTheme(t) {
+    const theme = THEMES.some(([id]) => id === t) ? t : "neon";
+    if (document.body.dataset.theme !== theme) {
+      document.body.dataset.theme = theme;
+      ui.theme = theme;
+      if (ui.canvasReady) startLoop();
+      vs.setState({ ...(vs.getState() || {}), theme });
+    }
+  }
+  applyTheme(saved.theme); // before the first state arrives, so there is no flash of the wrong theme
+  const subtitle = () =>
+    ui.theme === "stoic" ? QUOTES[Math.floor(Date.now() / 86400000) % QUOTES.length]
+    : ui.theme === "flight" ? "SALESFORCE QA · FLIGHT CONTROL"
+    : "SALESFORCE QA · MISSION CONTROL";
+
+  /** Flight theme only: giant thin headline + heading instrument (pass rate as the heading). */
+  function hero() {
+    if (ui.theme !== "flight") return "";
+    const t = tally();
+    const executed = t.passed + t.failed + t.blocked + t.error;
+    const pct = executed ? Math.round((t.passed / executed) * 100) : 0;
+    const total = (S.suite?.cases || []).length;
+    const org = S.orgs.find((o) => o.name === S.activeOrg);
+    return `<div class="hero">
+      <div><div class="big1">${esc((S.suite?.name || "SF AI").toUpperCase())}</div><div class="big2">${org ? esc(org.name.toUpperCase()) + " ·" : ""} TEST FLIGHT</div></div>
+      <div class="inst">
+        <div class="dial" style="--hdg:${Math.round(pct * 3.6)}deg"></div>
+        <div class="readout"><div class="k">${total} CASES · ${executed} RUNS</div><div class="v">${pct}°</div><div class="k">PASS HEADING · ${esc(modelShort(S.settings.primaryModel))}</div></div>
+      </div></div>`;
+  }
+
   function hud() {
     const org = S.orgs.find((o) => o.name === S.activeOrg);
     const busyTxt = { run: "MISSION ACTIVE", gen: "SYNTHESIZING", login: "ESTABLISHING UPLINK" }[S.busy] || "";
     return `<div class="hud">
-      <div><div class="logo"><span class="a">SF</span><span class="b">//</span><span class="a">AI</span> TESTER</div><div class="sub">SALESFORCE QA · MISSION CONTROL</div></div>
+      <div><div class="logo"><span class="a">SF</span><span class="b">//</span><span class="a">AI</span> TESTER</div><div class="sub">${esc(subtitle())}</div></div>
       <span class="chip ${org ? "on" : ""}"><span class="dot"></span>${org ? `UPLINK · ${esc(org.name)}` : "NO ORG LINKED"}</span>
       <span class="chip chain" title="Cases run on the primary model; anything short of PASSED is re-run on the fallback model">MODEL <b>${esc(modelShort(S.settings.primaryModel))}</b> <i>⟶</i> <b>${esc(modelShort(S.settings.fallbackModel))}</b></span>
       ${busyTxt ? `<span class="chip warn"><span class="dot"></span>${busyTxt}</span>` : ""}
       <span class="chip" title="Test cases, reports, sessions and generated specs are stored here. Any folder works.">▣ <span style="max-width:220px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom">${esc(S.workspace)}</span>
         <button class="ghost sm" data-act="folder:reveal" title="Open in Explorer">↗</button><button class="ghost sm" data-act="folder:pick">CHANGE</button></span>
       <span class="spacer"></span>
+      <span class="theme-switch" title="Theme">${THEMES.map(([id, l]) => `<button class="${ui.theme === id ? "on" : ""}" data-act="set:theme" data-v="${id}">${l}</button>`).join("")}</span>
       <span class="switch ${S.settings.headless ? "on" : ""}" data-act="set:headless" title="Test-execution browser. The login window always appears when you need to verify a passkey.">
         <span>${S.settings.headless ? "HEADLESS" : "VISIBLE"}</span><span class="track"><span class="knob"></span></span></span>
       <span class="clock" id="clock"></span>
@@ -364,7 +405,7 @@
     return `<div class="panel">
       <div class="ptitle"><span class="idx">04</span>TELEMETRY<span class="grow"></span></div>
       <div class="ringwrap">
-        <div class="bigring"><svg viewBox="0 0 120 120"><defs><linearGradient id="rg" x1="0" x2="1"><stop offset="0" stop-color="#1ee3ff"/><stop offset="1" stop-color="#b44cff"/></linearGradient></defs>
+        <div class="bigring"><svg viewBox="0 0 120 120"><defs><linearGradient id="rg" x1="0" x2="1"><stop offset="0" style="stop-color:var(--ring-a)"/><stop offset="1" style="stop-color:var(--ring-b)"/></linearGradient></defs>
           <circle class="orbit" cx="60" cy="60" r="58"/><circle class="track" cx="60" cy="60" r="52"/>
           <circle class="val" cx="60" cy="60" r="52" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
           <div class="center"><div><div class="pct"><span data-count="pct">${pct}</span>%</div><div class="cap">${cap}</div></div></div></div>
@@ -489,6 +530,11 @@
       case "org:login": return post("org:login", { name: S.activeOrg });
       case "set:headless": return post("settings:update", { key: "headless", value: !S.settings.headless });
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
+      case "set:theme":
+        // Switch instantly; the host persists it and echoes it back in the next state.
+        S.settings.theme = el.dataset.v;
+        render();
+        return post("settings:update", { key: "theme", value: el.dataset.v });
       case "folder:pick": return post("folder:pick");
       case "folder:reveal": return post("folder:reveal");
       case "setup:playwright": return post("setup:playwright");
@@ -606,7 +652,7 @@
     if (reduced) return;
     const card = e.target.closest?.(".card");
     document.querySelectorAll(".card[data-tilt]").forEach((c) => { if (c !== card) { c.style.transform = ""; delete c.dataset.tilt; } });
-    if (card && !ui.modal) {
+    if (card && !ui.modal && ui.theme !== "stoic") {
       const r = card.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width - 0.5;
       const y = (e.clientY - r.top) / r.height - 0.5;
@@ -680,11 +726,58 @@
     const n = Math.min(110, Math.round((innerWidth * innerHeight) / 16000));
     pts = Array.from({ length: n }, () => ({ x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25, r: Math.random() * 1.6 + 0.4 }));
   }
+  /** Exactly one animation loop at a time (theme switches and tab visibility restart it). */
+  let looping = false;
+  function startLoop() {
+    if (looping || reduced || document.hidden || ui.theme === "stoic") return;
+    looping = true;
+    requestAnimationFrame(frame);
+  }
+
+  // Flight theme: drifting cloud banks (parallax with the mouse) and a heading tape that follows the cursor.
+  const clouds = Array.from({ length: 16 }, (_, i) => ({ x: Math.random(), y: 0.08 + Math.random() * 0.85, s: 0.6 + Math.random() * 1.6, v: 0.00002 + Math.random() * 0.00005, z: 0.3 + (i % 4) * 0.25 }));
+  function flightFrame(t, d, mx, active) {
+    for (const c of clouds) {
+      c.x += c.v * (active ? 4 : 1) * 16;
+      if (c.x > 1.25) { c.x = -0.25; c.y = 0.08 + Math.random() * 0.85; }
+      const px = c.x * W + (mx / W - 0.5) * -40 * c.z * d;
+      const py = c.y * H;
+      const r = 120 * c.s * d;
+      for (let k = 0; k < 5; k++) {
+        const ox = (k - 2) * r * 0.45, oy = Math.sin(k * 1.7 + c.s) * r * 0.18;
+        const g = ctx.createRadialGradient(px + ox, py + oy, 0, px + ox, py + oy, r * (0.7 + (k % 2) * 0.3));
+        g.addColorStop(0, `rgba(255,255,255,${0.1 * c.z})`);
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(px + ox, py + oy, r, 0, 7); ctx.fill();
+      }
+    }
+    // heading tape along the bottom edge
+    const heading = ((mx / Math.max(W, 1)) * 360 + t / 400) % 360;
+    const y0 = H - 26 * d, step = 12 * d;
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = `${10 * d}px Inter, sans-serif`; ctx.textAlign = "center"; ctx.lineWidth = d;
+    for (let deg = Math.floor(heading - 60); deg <= heading + 60; deg++) {
+      const x = W / 2 + (deg - heading) * step;
+      const major = ((deg % 10) + 10) % 10 === 0;
+      ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 - (major ? 10 : 5) * d); ctx.stroke();
+      if (major) ctx.fillText(String(((deg % 360) + 360) % 360).padStart(3, "0"), x, y0 + 13 * d);
+    }
+    ctx.fillStyle = "#ff3434";
+    ctx.beginPath(); ctx.moveTo(W / 2, y0 - 12 * d); ctx.lineTo(W / 2 - 5 * d, y0 - 20 * d); ctx.lineTo(W / 2 + 5 * d, y0 - 20 * d); ctx.fill();
+  }
+
   function frame(t) {
     ctx.clearRect(0, 0, W, H);
     const d = devicePixelRatio;
     const mx = mouse.x * d, my = mouse.y * d;
     const active = S?.busy === "run" || S?.busy === "gen";
+    if (ui.theme === "stoic" || document.hidden) { looping = false; return; } // Stoic is still; restarted on theme change
+    if (ui.theme === "flight") {
+      flightFrame(t, d, mx, active);
+      requestAnimationFrame(frame);
+      return;
+    }
     // perspective grid floor
     ctx.strokeStyle = "rgba(30,227,255,0.06)";
     ctx.lineWidth = 1;
@@ -712,12 +805,13 @@
       ctx.fillStyle = "rgba(160,240,255,0.7)";
       ctx.beginPath(); ctx.arc(a.x, a.y, a.r * d, 0, 7); ctx.fill();
     }
-    if (!document.hidden && !reduced) requestAnimationFrame(frame);
+    requestAnimationFrame(frame);
   }
   addEventListener("resize", resize);
-  document.addEventListener("visibilitychange", () => !document.hidden && !reduced && requestAnimationFrame(frame));
+  document.addEventListener("visibilitychange", startLoop);
   resize();
-  requestAnimationFrame(frame);
+  ui.canvasReady = true;
+  startLoop();
 
   post("ready");
 })();

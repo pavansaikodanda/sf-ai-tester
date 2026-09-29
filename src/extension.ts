@@ -6,6 +6,7 @@ let output: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
   output = vscode.window.createOutputChannel("SF AI Tester");
+  migrateModels();
   const open = () => ConsolePanel.show(context, output);
   const reg = (id: string, fn: (...a: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(id, fn));
 
@@ -39,4 +40,14 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   ConsolePanel.cancel();
+}
+
+/** One-time move of saved model settings to their successors (e.g. Sonnet 5 -> Sonnet 5.5). */
+function migrateModels() {
+  const cfg = vscode.workspace.getConfiguration("sfAiTester");
+  const renames: Record<string, string> = { "claude-sonnet-5": "claude-sonnet-5-5" };
+  for (const key of ["primaryModel", "fallbackModel"]) {
+    const saved = cfg.inspect<string>(key)?.globalValue;
+    if (saved && renames[saved]) cfg.update(key, renames[saved], vscode.ConfigurationTarget.Global);
+  }
 }
