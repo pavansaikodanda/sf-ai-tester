@@ -10,10 +10,9 @@ import { readStatus, recordResult, forgetCase, readAll } from "../core/status";
 import { collectReport, writeExcel, writePdf } from "../core/export";
 import { LoginOptions, OrgConfig, TestCase, TestMode, TestSuite } from "../core/types";
 import { SAMPLE_SUITE } from "../sample";
-import { detectProjectOrg, describeOrg, listOrgs } from "../core/sfcli";
+import { listOrgs } from "../core/sfcli";
+import { ACTIVE_ORG_KEY, ORGS_KEY, ProjectOrgSync } from "./projectOrg";
 
-const ORGS_KEY = "sfAiTester.orgs";
-const ACTIVE_ORG_KEY = "sfAiTester.activeOrg";
 const SUITE_KEY = "sfAiTester.suiteFile";
 const secretKey = (org: string) => `sfAiTester.password.${org}`;
 
@@ -32,7 +31,7 @@ export class ConsolePanel {
   private live = new Map<string, { phase: string; model?: string }>();
   private disposables: vscode.Disposable[] = [];
 
-  static show(ctx: vscode.ExtensionContext, output: vscode.OutputChannel) {
+  static show(ctx: vscode.ExtensionContext, output: vscode.OutputChannel, projectOrg: ProjectOrgSync) {
     if (ConsolePanel.current) {
       ConsolePanel.current.panel.reveal();
       return ConsolePanel.current;
@@ -43,7 +42,7 @@ export class ConsolePanel {
       localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, "media")],
     });
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, "media", "logo.png");
-    ConsolePanel.current = new ConsolePanel(panel, ctx, output);
+    ConsolePanel.current = new ConsolePanel(panel, ctx, output, projectOrg);
     return ConsolePanel.current;
   }
 
@@ -55,53 +54,19 @@ export class ConsolePanel {
     private panel: vscode.WebviewPanel,
     private ctx: vscode.ExtensionContext,
     private output: vscode.OutputChannel,
+    private projectOrg: ProjectOrgSync,
   ) {
     panel.webview.html = this.html();
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.webview.onDidReceiveMessage((m: Msg) => this.handle(m).catch((e) => this.toast("error", (e as Error).message)), null, this.disposables);
     vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("sfAiTester") && this.pushState(), null, this.disposables);
     this.watch();
-    void this.syncProjectOrg();
-    vscode.workspace.onDidChangeWorkspaceFolders(() => void this.syncProjectOrg(), null, this.disposables);
-  }
-
-  /** Default org of the open Salesforce DX project, as last detected (shown in the console). */
-  private project: { target: string; source: string; status: string; orgName?: string } | undefined;
-
-  /**
-   * When VS Code is opened on a Salesforce DX project whose default org is already authorised in the sf CLI,
-   * use that org directly - no login form, password or passkey (the CLI token is used via frontdoor).
-   */
-  private async syncProjectOrg() {
-    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const detected = folder ? detectProjectOrg(folder) : undefined;
-    if (!detected) {
-      this.project = undefined;
-      return this.pushState();
-    }
-    this.project = { ...detected, status: "checking" };
-    this.pushState();
-    const org = await describeOrg(detected.target).catch(() => undefined);
-    if (!org) {
-      this.project = { ...detected, status: "not found" };
-      this.toast("warn", `Project org "${detected.target}" is not authorised in the sf CLI. Run: sf org login web --alias ${detected.target}`);
-      return this.pushState();
-    }
-    if (!org.connected) {
-      this.project = { ...detected, status: org.status };
-      this.toast("warn", `Project org "${org.alias ?? org.username}" is not connected (${org.status}). Run: sf org login web --alias ${org.alias ?? org.username}`);
-      return this.pushState();
-    }
-    const orgs = this.orgs();
-    const existing = orgs.find((o) => o.authMode === "sfcli" && o.sfAlias === org.username);
-    let name = existing?.name ?? org.alias ?? org.username;
-    if (!existing) for (let n = 2; orgs.some((o) => o.name === name); n++) name = `${org.alias ?? org.username} (${n})`;
-    const entry: OrgConfig = { name, authMode: "sfcli", sfAlias: org.username, loginUrl: org.instanceUrl ?? "", username: org.username, source: "project" };
-    await this.ctx.globalState.update(ORGS_KEY, [...orgs.filter((o) => o.name !== name), entry]);
-    await this.ctx.globalState.update(ACTIVE_ORG_KEY, name);
-    this.project = { ...detected, status: "connected", orgName: name };
-    this.toast("ok", `Using "${name}" from this Salesforce project (sf CLI) - no login needed.`);
-    this.pushState();
+    // The project default org is synced by the extension at startup and on config changes; mirror it here.
+    projectOrg.onDidChange((msg) => {
+      if (msg) this.toast(msg.level, msg.text);
+      this.pushState();
+    }, null, this.disposables);
+    void projectOrg.sync();
   }
 
   private watcher: vscode.FileSystemWatcher | undefined;
@@ -224,7 +189,7 @@ export class ConsolePanel {
       hasPlaywright,
       orgs: this.orgs().map(({ password, ...o }) => o),
       activeOrg: this.activeOrgName() ?? null,
-      project: this.project ?? null,
+      project: this.projectOrg.state ?? null,
       suites: this.suites().map((f) => ({ file: f, label: path.basename(f) })),
       suiteFile: file ?? null,
       suite: suite ?? null,
@@ -300,7 +265,7 @@ export class ConsolePanel {
         }
         return;
       case "project:recheck":
-        return this.syncProjectOrg();
+        return this.projectOrg.sync();
       case "org:login":
         return this.login(m.name);
 

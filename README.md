@@ -140,11 +140,12 @@ The exit code is non-zero if any case isn't `passed`.
 
 ## Salesforce DX projects: no login needed
 
-Open VS Code on a Salesforce DX project (a folder with `sfdx-project.json`) and open Mission Control. The tester reads the
+Open VS Code on a Salesforce DX project (a folder with `sfdx-project.json`). As soon as VS Code starts (no need to open the console), the tester reads the
 project's default org (`.sf/config.json` → `target-org`, then the legacy `.sfdx/sfdx-config.json`, then your global
 `sf` default), checks it with `sf org display`, and if it is connected:
 
-- adds it as an **sf CLI** org marked **PROJECT** and makes it the active org
+- adds it as an **sf CLI** org marked **PROJECT** and makes it the active org (shown in the status bar and sidebar)
+- follows changes automatically: switch the default org (`sf config set target-org`, or the Salesforce extension org picker) and the tester switches with it
 - logs in through the CLI's token (`sf org open --url-only`) in the background: no password, no login form
 
 If the project org isn't connected, the header shows **SFDX · … NOT CONNECTED** with the command to fix it

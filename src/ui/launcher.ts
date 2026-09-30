@@ -9,10 +9,21 @@ export class LauncherView implements vscode.WebviewViewProvider {
     private open: () => unknown,
   ) {}
 
+  private view: vscode.WebviewView | undefined;
+
+  /** Re-renders after the org list changes (e.g. the project org was picked up). */
+  refresh() {
+    if (this.view) this.resolveWebviewView(this.view);
+  }
+
   resolveWebviewView(view: vscode.WebviewView) {
+    const first = !this.view;
+    this.view = view;
     view.webview.options = { enableScripts: true };
     const nonce = Array.from({ length: 24 }, () => Math.random().toString(36)[2]).join("");
-    const orgs = this.ctx.globalState.get<{ name: string }[]>("sfAiTester.orgs", []);
+    const orgs = this.ctx.globalState.get<{ name: string; source?: string }[]>("sfAiTester.orgs", []);
+    const activeName = this.ctx.globalState.get<string>("sfAiTester.activeOrg");
+    const active = orgs.find((o) => o.name === activeName) ?? orgs[0];
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
     view.webview.html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
@@ -35,10 +46,10 @@ button:hover{transform:translateY(-1px);box-shadow:0 0 28px #b44cffaa}
 <h1>MISSION CONTROL</h1>
 <p>Configure orgs, generate &amp; manage test cases, and run AI manual + automation testing.</p>
 <button id="go">LAUNCH CONSOLE</button>
-<div class="orgs">${orgs.length ? `<span class="dot"></span>${orgs.length} org${orgs.length > 1 ? "s" : ""}: <b>${orgs.map((o) => esc(o.name)).join(", ")}</b>` : "No orgs linked yet"}</div>
+<div class="orgs">${active ? `<span class="dot"></span>Active org: <b>${esc(active.name)}</b>${active.source === "project" ? " · from this Salesforce project" : ""}${orgs.length > 1 ? `<br><span style="opacity:.7">${orgs.length} orgs linked</span>` : ""}` : "No orgs linked yet"}</div>
 </div></div>
 <script nonce="${nonce}">const vs=acquireVsCodeApi();document.getElementById('go').onclick=()=>vs.postMessage('open');</script>
 </body></html>`;
-    view.webview.onDidReceiveMessage(() => this.open());
+    if (first) view.webview.onDidReceiveMessage(() => this.open());
   }
 }

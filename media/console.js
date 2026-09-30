@@ -238,6 +238,7 @@
     if (!p) return "";
     if (p.status === "checking") return `<span class="chip warn" title="Reading the project default org (${esc(p.source)})"><span class="dot"></span>SFDX · CHECKING ${esc(p.target)}</span>`;
     if (p.status === "connected") return `<span class="chip on" title="Default org of the open Salesforce project (${esc(p.source)}), connected through the sf CLI - no login needed"><span class="dot"></span>SFDX PROJECT · ${esc(p.orgName || p.target)}</span>`;
+    if (p.status === "connected-unverified") return `<span class="chip on" title="Default org of the open Salesforce project (${esc(p.source)}). The sf CLI could not reach the org just now; the login is verified on the first run."><span class="dot"></span>SFDX PROJECT · ${esc(p.orgName || p.target)} <button class="ghost sm" data-act="project:recheck">RECHECK</button></span>`;
     return `<span class="chip warn" title="${esc(`Project default org ${p.target}: ${p.status}. Run: sf org login web --alias ${p.target}`)}"><span class="dot"></span>SFDX · ${esc(p.target)} NOT CONNECTED <button class="ghost sm" data-act="project:recheck">RECHECK</button></span>`;
   }
 
