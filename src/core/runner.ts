@@ -2,7 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { spawn } from "child_process";
 import { authenticate, AuthSession } from "./auth";
-import { PW_CONFIG, SPEC_DIR, runCaseWithAgent } from "./agent";
+import { AgentContext, PW_CONFIG, SPEC_DIR, runCaseWithAgent } from "./agent";
+import { BrowserHost, startBrowserHost } from "./browserHost";
 import { writeReport } from "./report";
 import { CaseResult, OrgConfig, RunEvent, RunOptions, TestSuite } from "./types";
 
@@ -70,33 +71,52 @@ export async function runSuite(
       const models = opts.models.length ? opts.models : [""];
       const attempts: NonNullable<CaseResult["attempts"]> = [];
       let result!: CaseResult;
-      for (let i = 0; i < models.length; i++) {
-        const model = models[i];
-        if (i === 0) emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m, model });
-        log(`\n=== ${tc.id} [${m}] ${tc.title}${model ? ` (model: ${model})` : ""}`);
-        result = await runCaseWithAgent(tc, m, {
-          suite,
-          auth,
-          workspaceDir: opts.workspaceDir,
-          toolRoot: opts.toolRoot,
-          evidenceDir,
-          headless: opts.headless,
-          model,
-          maxTurns: opts.maxTurns,
-          useSubscription: opts.useSubscription,
-          abort,
-          log,
+      // One browser for the whole case, shared by every model attempt, so an escalation continues on the
+      // page the previous model left off. If it can't start, each attempt falls back to its own browser.
+      let host: BrowserHost | undefined;
+      if (models.length > 1) {
+        host = await startBrowserHost({ storageStatePath: auth.storageStatePath, headless: opts.headless }).catch((e) => {
+          log(`  (shared browser unavailable: ${(e as Error).message} - a fallback model will start in a fresh browser)`);
+          return undefined;
         });
-        if (m === "automation" && result.status === "passed") {
-          result = await verifySpec(result, opts.workspaceDir, auth, log);
+      }
+      let resume: AgentContext["resume"];
+      try {
+        for (let i = 0; i < models.length; i++) {
+          const model = models[i];
+          if (i === 0) emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m, model });
+          log(`\n=== ${tc.id} [${m}] ${tc.title}${model ? ` (model: ${model})` : ""}${resume ? " - continuing previous session" : ""}`);
+          result = await runCaseWithAgent(tc, m, {
+            suite,
+            auth,
+            workspaceDir: opts.workspaceDir,
+            toolRoot: opts.toolRoot,
+            evidenceDir,
+            headless: opts.headless,
+            model,
+            maxTurns: opts.maxTurns,
+            useSubscription: opts.useSubscription,
+            abort,
+            log,
+            cdpEndpoint: host?.cdpEndpoint,
+            resume,
+          });
+          if (m === "automation" && result.status === "passed") {
+            result = await verifySpec(result, opts.workspaceDir, auth, log);
+          }
+          result.model = model || "default";
+          attempts.push({ model: result.model, status: result.status, summary: result.summary, trail: result.trail });
+          const next = models[i + 1];
+          if (result.status === "passed" || !next || abort.signal.aborted) break;
+          // Hand over: the next model resumes this conversation (and, with the shared browser, this page).
+          resume = result.sessionId ? { sessionId: result.sessionId, model: result.model, status: result.status, summary: result.summary } : undefined;
+          const how = resume ? (host ? "continuing on the same page and session" : "continuing the same session") : "starting fresh";
+          const reason = `${model || "default"} reported ${result.status}: ${result.summary.slice(0, 200)}`;
+          log(`>>> Escalating ${tc.id} [${m}] to ${next} (${how}) - ${reason}`);
+          emit({ type: "escalate", id: tc.id, mode: m, from: model, to: next, reason });
         }
-        result.model = model || "default";
-        attempts.push({ model: result.model, status: result.status, summary: result.summary, trail: result.trail });
-        const next = models[i + 1];
-        if (result.status === "passed" || !next || abort.signal.aborted) break;
-        const reason = `${model || "default"} reported ${result.status}: ${result.summary.slice(0, 200)}`;
-        log(`>>> Escalating ${tc.id} [${m}] to ${next} - ${reason}`);
-        emit({ type: "escalate", id: tc.id, mode: m, from: model, to: next, reason });
+      } finally {
+        await host?.close();
       }
       result.attempts = attempts;
       log(`=== ${tc.id} [${m}] ${result.status.toUpperCase()} (${result.model}): ${result.summary}`);

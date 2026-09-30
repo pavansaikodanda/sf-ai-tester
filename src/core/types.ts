@@ -85,6 +85,8 @@ export interface CaseResult extends AgentVerdict {
   turns: number;
   /** Model that produced this verdict */
   model?: string;
+  /** Agent SDK session, so a fallback model can resume it */
+  sessionId?: string;
   /** What the agent actually did (tool calls and short notes), most recent last */
   trail?: string[];
   /** Models tried, in order, with their verdicts */

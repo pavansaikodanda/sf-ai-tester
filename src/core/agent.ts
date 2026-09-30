@@ -17,6 +17,10 @@ export interface AgentContext {
   useSubscription: boolean;
   abort: AbortController;
   log: (m: string) => void;
+  /** Runner-owned browser for this case (shared across model attempts) */
+  cdpEndpoint?: string;
+  /** Continue a previous model attempt: same conversation (and, with cdpEndpoint, the same browser page) */
+  resume?: { sessionId: string; model: string; status: string; summary: string };
 }
 
 export const SPEC_DIR = "tests/sf-ai";
@@ -131,13 +135,36 @@ Process:
 Return your verdict in the required JSON format with "specFile" set to "${spec}". "passed" means the spec passes.`;
 }
 
+/** Instructions for a fallback model continuing a previous attempt in the same session (and browser). */
+function handoverPrompt(tc: TestCase, mode: "manual" | "automation", ctx: AgentContext): string {
+  const prev = ctx.resume!;
+  const where = ctx.cdpEndpoint
+    ? "The same browser is still open on the page where that attempt stopped."
+    : "The browser had to be restarted, so navigate back to where that attempt got to.";
+  const auto = mode === "automation"
+    ? ` If the problem is the SCRIPT, fix ${SPEC_DIR}/${tc.id}.spec.ts in place and re-run it with: npx playwright test --config ${PW_CONFIG} ${SPEC_DIR}/${tc.id}.spec.ts`
+    : "";
+  return `HANDOVER: you are now taking over test case ${tc.id} (${mode}) from the previous model (${prev.model}), whose attempt ended as "${prev.status}": ${prev.summary}
+
+${where} The conversation above shows everything it did and observed. Continue from the current state - do not log in again and do not restart from step 1 unless the current page makes that necessary.
+
+Independently re-verify every step and expected result the previous attempt did not pass; do not just repeat its conclusion - it may have been a mistake or a timing problem.${auto}
+Save screenshots with absolute filenames inside ${ctx.evidenceDir.replace(/\\/g, "/")}/.
+Return your own complete verdict in the required JSON format, with one entry in "steps" per numbered step of the test case.`;
+}
+
 export function playwrightMcp(ctx: {
   toolRoot: string;
   auth: AuthSession;
   evidenceDir: string;
   headless: boolean;
+  cdpEndpoint?: string;
 }): McpServerConfig {
   const cli = path.join(ctx.toolRoot, "node_modules", "@playwright", "mcp", "cli.js");
+  if (ctx.cdpEndpoint) {
+    // Attach to the runner-owned browser: pages survive when this agent session ends.
+    return { type: "stdio", command: "node", args: [cli, "--cdp-endpoint", ctx.cdpEndpoint, "--output-dir", ctx.evidenceDir] };
+  }
   return {
     type: "stdio",
     command: "node",
@@ -213,9 +240,12 @@ export async function runCaseWithAgent(
     settingSources: [],
     systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_APPEND },
     outputFormat: { type: "json_schema", schema: VERDICT_SCHEMA },
+    // Escalation: pick up the previous model conversation instead of starting a new session.
+    ...(ctx.resume ? { resume: ctx.resume.sessionId } : {}),
   };
 
-  const prompt = mode === "manual" ? manualPrompt(tc, ctx) : automationPrompt(tc, ctx);
+  const prompt = ctx.resume ? handoverPrompt(tc, mode, ctx) : mode === "manual" ? manualPrompt(tc, ctx) : automationPrompt(tc, ctx);
+  let sessionId: string | undefined;
   let verdict: AgentVerdict | undefined;
   let costUsd = 0;
   let turns = 0;
@@ -226,6 +256,7 @@ export async function runCaseWithAgent(
     for await (const msg of query({ prompt, options })) {
       logMessage(msg, ctx.log);
       recordTrail(msg, trail);
+      if ("session_id" in msg && msg.session_id) sessionId = msg.session_id;
       if (msg.type === "result") {
         costUsd = msg.total_cost_usd;
         turns = msg.num_turns;
@@ -240,7 +271,7 @@ export async function runCaseWithAgent(
     failure = ctx.abort.signal.aborted ? "Cancelled" : `Agent error: ${(e as Error).message}`;
   }
 
-  const base = { id: tc.id, title: tc.title, mode, durationMs: Date.now() - started, costUsd, turns, trail: trail.slice(-TRAIL_MAX) };
+  const base = { id: tc.id, title: tc.title, mode, durationMs: Date.now() - started, costUsd, turns, trail: trail.slice(-TRAIL_MAX), sessionId };
   if (!verdict) {
     return { ...base, status: "error", summary: failure, steps: [], defects: [], evidence: [] };
   }
