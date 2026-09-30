@@ -23,6 +23,8 @@ export interface OrgConfig {
   password?: string;
   /** sf CLI alias/username when authMode === "sfcli" */
   sfAlias?: string;
+  /** "project" = picked up automatically from the open Salesforce DX project default org */
+  source?: "project";
 }
 
 export type TestMode = "manual" | "automation" | "both";

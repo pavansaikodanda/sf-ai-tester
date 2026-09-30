@@ -17,8 +17,25 @@ export interface AuthCallbacks {
   needsUser?: (m: string) => void;
 }
 
-const LOGGED_IN = /\.lightning\.force\.com|\/lightning\/|\/home\/home\.jsp|\/setup\//;
+/**
+ * Really inside the org: on the Lightning domain (or a classic home/setup page) and not on an identity page
+ * (passkey / MFA / verification). A my.salesforce.com/lightning/... URL is not enough - Salesforce can still
+ * bounce from there to a mandatory passkey or authenticator registration.
+ */
+const LOGGED_IN = (u: URL | string): boolean => {
+  let url: URL;
+  try {
+    url = typeof u === "string" ? new URL(u) : u;
+  } catch {
+    return false;
+  }
+  if (/\/(_ui\/)?identity\/|\/secur\/|^\/login/i.test(url.pathname)) return false;
+  return url.hostname.endsWith(".lightning.force.com") || /^\/(home\/home\.jsp|setup\/)/.test(url.pathname);
+};
 const HEADLESS_ATTEMPT_MS = 30_000;
+
+/** URL without query/fragment - frontdoor URLs carry a session id that must never reach logs. */
+const safeUrl = (u: string) => u.split(/[?#]/)[0];
 
 /** Salesforce wants something only a person can provide (passkey, MFA code, SSO, device verification). */
 class NeedsUserError extends Error {}
@@ -67,10 +84,11 @@ export async function authenticate(
     try {
       const page = context.pages()[0] ?? (await context.newPage());
       await page.goto(org.authMode === "sfcli" ? frontdoorUrl(org) : org.loginUrl, { waitUntil: "domcontentloaded" });
+      await skipInterstitial(page);
 
       // Already logged in thanks to the persistent profile, or via sf CLI frontdoor.
-      if (LOGGED_IN.test(page.url())) {
-        await page.waitForLoadState("networkidle").catch(() => undefined);
+      if (LOGGED_IN(page.url())) {
+        await settleOnLightning(page);
         return await save(context, page.url());
       }
 
@@ -88,10 +106,10 @@ export async function authenticate(
         await waitForLogin(page, headless ? HEADLESS_ATTEMPT_MS : login.timeoutMinutes * 60_000);
       } catch (e) {
         if ((e as Error).message.startsWith("Salesforce login failed")) throw e;
-        if (headless) throw new NeedsUserError(`Login needs user interaction (stopped at ${page.url()})`);
-        throw new Error(`Login was not completed within ${login.timeoutMinutes} minutes (stopped at ${page.url()})`);
+        if (headless) throw new NeedsUserError(`Login needs user interaction (stopped at ${safeUrl(page.url())})`);
+        throw new Error(`Login was not completed within ${login.timeoutMinutes} minutes (stopped at ${safeUrl(page.url())})`);
       }
-      await page.waitForLoadState("networkidle").catch(() => undefined);
+      await settleOnLightning(page);
       return await save(context, page.url());
     } finally {
       await context.close();
@@ -101,6 +119,9 @@ export async function authenticate(
   const label = { password: "username/password", sfcli: "sf CLI frontdoor", interactive: "interactive login" }[org.authMode];
   cb.log(`Logging in to ${org.name} via ${label} (login browser: ${login.browserMode})...`);
 
+  // sf CLI logins use the CLI token via frontdoor, so start in the background. If the org enforces passkey/MFA
+  // registration, Salesforce still demands it once in the browser - then a window opens, exactly as in "auto".
+  if (org.authMode === "sfcli" && login.browserMode === "headed") login = { ...login, browserMode: "auto" };
   if (login.browserMode === "headed" || (login.browserMode === "auto" && org.authMode === "interactive")) {
     return attempt(false);
   }
@@ -111,7 +132,7 @@ export async function authenticate(
       if (e instanceof NeedsUserError) {
         throw new Error(
           `${e.message}. Salesforce is asking for a passkey/MFA/verification - set the login browser to "auto" or ` +
-            `"headed" (or run "SF AI Tester: Log In to Org") to complete it once.`,
+            `"headed" (or click ESTABLISH UPLINK in the console) to complete it once.`,
         );
       }
       throw e;
@@ -156,6 +177,28 @@ async function prefillLogin(page: Page, org: OrgConfig) {
 }
 
 /** Resolves when logged in; rejects with the Salesforce error text as soon as the login page shows one. */
+/**
+ * Post-login prompts ("Add a passkey", "Add your phone number", ...). Optional ones offer Skip / Remind me later
+ * and are clicked through; mandatory ones ("Your account requires a passkey") are left to the user.
+ */
+const INTERSTITIAL = /\/_ui\/identity\/(webauthn\/AddPasskeyUi|phone\/AddPhoneNumber|verification\/method\/AddVerificationMethod)/i;
+const SKIP_LABEL = /^\s*(skip|remind me later|not now|maybe later|do this later|i.ll do it later)\s*$/i;
+
+/** Waits for the redirect to the Lightning domain so its cookies are part of the saved session. */
+async function settleOnLightning(page: Page) {
+  await page.waitForURL(/\.lightning\.force\.com/, { timeout: 20_000 }).catch(() => undefined);
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+}
+
+async function skipInterstitial(page: Page): Promise<boolean> {
+  if (!INTERSTITIAL.test(page.url())) return false;
+  const skip = page.getByRole("link", { name: SKIP_LABEL }).or(page.getByRole("button", { name: SKIP_LABEL })).first();
+  if (!(await skip.isVisible({ timeout: 3000 }).catch(() => false))) return false;
+  await skip.click().catch(() => undefined);
+  await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+  return true;
+}
+
 async function waitForLogin(page: Page, timeout: number) {
   const failed = page
     .locator("#error")
@@ -165,7 +208,17 @@ async function waitForLogin(page: Page, timeout: number) {
       throw new Error(`Salesforce login failed: ${(await page.locator("#error").textContent())?.trim()}`);
     });
   failed.catch(() => undefined);
-  await Promise.race([page.waitForURL(LOGGED_IN, { timeout }), failed]);
+  const nudges = (async () => {
+    const end = Date.now() + timeout;
+    while (Date.now() < end && !page.isClosed()) {
+      await skipInterstitial(page);
+      if (LOGGED_IN(page.url())) return;
+      await page.waitForTimeout(1000);
+    }
+    throw new Error("timeout");
+  })();
+  nudges.catch(() => undefined);
+  await Promise.race([page.waitForURL(LOGGED_IN, { timeout }), failed, nudges]);
 }
 
 async function launchLoginBrowser(
@@ -193,8 +246,8 @@ async function sessionIsValid(storageStatePath: string, instanceUrl: string): Pr
     const context = await browser.newContext({ storageState: storageStatePath });
     const page = await context.newPage();
     await page.goto(`${instanceUrl}/lightning/page/home`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.waitForTimeout(2000);
-    return LOGGED_IN.test(page.url()) && !/login\.salesforce|\/\?ec=|secur\/frontdoor/.test(page.url());
+    await page.waitForURL(LOGGED_IN, { timeout: 15_000 }).catch(() => undefined);
+    return LOGGED_IN(page.url());
   } catch {
     return false;
   } finally {

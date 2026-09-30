@@ -219,6 +219,7 @@
     return `<div class="hud">
       <div><div class="logo"><span class="a">SF</span><span class="b">//</span><span class="a">AI</span> TESTER</div><div class="sub">${esc(subtitle())}</div></div>
       <span class="chip ${org ? "on" : ""}"><span class="dot"></span>${org ? `UPLINK · ${esc(org.name)}` : "NO ORG LINKED"}</span>
+      ${projectChip()}
       <span class="chip chain" title="Cases run on the primary model; anything short of PASSED is re-run on the fallback model">MODEL <b>${esc(modelShort(S.settings.primaryModel))}</b> <i>⟶</i> <b>${esc(modelShort(S.settings.fallbackModel))}</b></span>
       ${busyTxt ? `<span class="chip warn"><span class="dot"></span>${busyTxt}</span>` : ""}
       <span class="chip" title="Test cases, reports, sessions and generated specs are stored here. Any folder works.">▣ <span style="max-width:220px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom">${esc(S.workspace)}</span>
@@ -229,6 +230,15 @@
         <span>${S.settings.headless ? "HEADLESS" : "VISIBLE"}</span><span class="track"><span class="knob"></span></span></span>
       <span class="clock" id="clock"></span>
     </div>`;
+  }
+
+  /** Status of the open Salesforce DX project's default org (only shown inside an SFDX project). */
+  function projectChip() {
+    const p = S.project;
+    if (!p) return "";
+    if (p.status === "checking") return `<span class="chip warn" title="Reading the project default org (${esc(p.source)})"><span class="dot"></span>SFDX · CHECKING ${esc(p.target)}</span>`;
+    if (p.status === "connected") return `<span class="chip on" title="Default org of the open Salesforce project (${esc(p.source)}), connected through the sf CLI - no login needed"><span class="dot"></span>SFDX PROJECT · ${esc(p.orgName || p.target)}</span>`;
+    return `<span class="chip warn" title="${esc(`Project default org ${p.target}: ${p.status}. Run: sf org login web --alias ${p.target}`)}"><span class="dot"></span>SFDX · ${esc(p.target)} NOT CONNECTED <button class="ghost sm" data-act="project:recheck">RECHECK</button></span>`;
   }
 
   function infoBanners() {
@@ -243,6 +253,7 @@
       <div class="org ${o.name === S.activeOrg ? "active" : ""}" data-act="org:select" data-name="${esc(o.name)}">
         <div class="ico">${esc(o.name.slice(0, 2).toUpperCase())}</div>
         <div class="meta"><div class="n">${esc(o.name)}</div><div class="u">${esc(o.username || o.sfAlias || o.loginUrl)}</div></div>
+        ${o.source === "project" ? `<span class="tag" style="color:var(--green);border-color:var(--green)" title="Default org of the open Salesforce project">PROJECT</span>` : ""}
         <span class="tag">${{ password: "PASSWORD", interactive: "PASSKEY", sfcli: "SF CLI" }[o.authMode]}</span>
         <button class="ghost sm" data-act="org:edit" data-name="${esc(o.name)}" title="Edit">✎</button>
       </div>`).join("");
@@ -251,9 +262,23 @@
       <div class="ptitle"><span class="idx">01</span>ORG UPLINK<span class="grow"></span><button class="sm" data-act="org:new">＋ NEW</button></div>
       ${S.orgs.length ? `<div class="orgs">${tiles}</div>` : ""}
       ${!d && active ? `<div class="row"><button class="primary" style="flex:1" data-act="org:login" ${S.busy ? "disabled" : ""}>⟁ ESTABLISH UPLINK</button></div>
-        <div class="muted" style="font-size:12.5px;margin-top:8px">Opens the login window. Username &amp; password are typed for you — verify your passkey there. The session is reused for later runs.</div>` : ""}
+        <div class="muted" style="font-size:12.5px;margin-top:8px">${active.authMode === "sfcli"
+          ? `Connected through the Salesforce CLI${active.source === "project" ? " (this project's default org)" : ""} — no password needed. Runs log in automatically in the background; if the org enforces a passkey, a window opens once to verify it.`
+          : "Opens the login window. Username &amp; password are typed for you — verify your passkey there. The session is reused for later runs."}</div>` : ""}
       ${d ? orgForm(d) : !S.orgs.length ? `<div class="empty"><div class="big">NO ORG LINKED</div>Add the Salesforce org you want to test.<br><br><button class="primary" data-act="org:new">＋ LINK AN ORG</button></div>` : ""}
     </div>`;
+  }
+
+  /** Clickable list of orgs the sf CLI knows about (connected ones first). */
+  function sfOrgPicker() {
+    if (!Array.isArray(ui.sfOrgs)) return ui.sfOrgsError ? `<div class="muted" style="color:var(--red);font-size:12.5px;margin-bottom:8px">${esc(ui.sfOrgsError)}</div>` : "";
+    if (!ui.sfOrgs.length) return `<div class="muted" style="font-size:12.5px;margin-bottom:8px">No orgs found in the sf CLI.</div>`;
+    return `<div class="orgs" style="max-height:240px;overflow-y:auto;margin-bottom:8px">${ui.sfOrgs.map((o) => `
+      <div class="org ${o.username === ui.orgDraft?.sfAlias ? "active" : ""}" data-act="sf:pick" data-u="${esc(o.username)}" data-a="${esc(o.alias || "")}" style="${o.connected ? "" : "opacity:.55"}" title="${esc(o.connected ? o.instanceUrl || "" : o.status)}">
+        <span class="chip ${o.connected ? "on" : ""}" style="padding:2px 6px;border:0;background:transparent"><span class="dot"></span></span>
+        <div class="meta"><div class="n">${esc(o.alias || o.username)}</div><div class="u">${esc(o.username)}</div></div>
+        <span class="tag">${o.connected ? (o.isSandbox ? "SANDBOX" : "CONNECTED") : "OFFLINE"}</span>
+      </div>`).join("")}</div>`;
   }
 
   function orgForm(d) {
@@ -267,8 +292,10 @@
         <label class="f"><span>Username${d.authMode === "interactive" ? " (optional, pre-filled)" : ""}</span><input type="text" data-bind="org.username" value="${esc(d.username)}" autocomplete="off"></label>` : ""}
       ${d.authMode === "password" ? `<label class="f"><span>Password</span><div class="pw"><input type="${ui.showPw ? "text" : "password"}" data-bind="org.password" value="${esc(d.password)}" placeholder="${d.previousName ? "•••••• unchanged" : ""}" autocomplete="off"><button class="ghost sm" data-act="org:pw">${ui.showPw ? "HIDE" : "SHOW"}</button></div></label>
         <div class="muted" style="font-size:12px;margin:-4px 0 10px">Stored in VS Code SecretStorage. Never sent to the AI.</div>` : ""}
-      ${d.authMode === "sfcli" ? `<label class="f"><span>sf CLI alias / username</span><input type="text" data-bind="org.sfAlias" value="${esc(d.sfAlias)}" placeholder="my-uat"></label>
-        <div class="muted" style="font-size:12px;margin:-4px 0 10px">Authorise first with <span class="mono">sf org login web -a my-uat</span>. No passkey prompts.</div>` : ""}
+      ${d.authMode === "sfcli" ? `<label class="f"><span>sf CLI username</span><input type="text" data-bind="org.sfAlias" value="${esc(d.sfAlias)}" placeholder="me@acme.com.uat"></label>
+        <div class="row" style="margin:-4px 0 8px"><button class="sm" data-act="sf:list" ${ui.sfOrgs === "loading" ? "disabled" : ""}>${ui.sfOrgs === "loading" ? "LOADING…" : "⟲ LOAD CONNECTED ORGS"}</button></div>
+        ${sfOrgPicker()}
+        <div class="muted" style="font-size:12px;margin:0 0 10px">Uses orgs already authorised with <span class="mono">sf org login web</span>. No password needed — a passkey is only asked (once) if the org enforces one.</div>` : ""}
       <div class="row end">
         ${d.previousName ? `<button class="danger sm" data-act="org:delete" data-name="${esc(d.previousName)}">DELETE</button><span class="spacer" style="flex:1"></span>` : ""}
         <button class="ghost sm" data-act="org:cancel">CANCEL</button>
@@ -596,6 +623,12 @@
       case "org:save": { const { previousName, password, ...org } = ui.orgDraft; ui.orgSaving = org.name.trim(); post("org:save", { org, password, previousName }); return; }
       case "org:delete": return confirmBox(`Remove org "${el.dataset.name}" and its stored password?`, () => { ui.orgDraft = null; post("org:delete", { name: el.dataset.name }); });
       case "org:login": return post("org:login", { name: S.activeOrg });
+      case "sf:list": ui.sfOrgs = "loading"; ui.sfOrgsError = ""; render(); return post("sf:list");
+      case "sf:pick":
+        ui.orgDraft.sfAlias = el.dataset.u;
+        if (!ui.orgDraft.name.trim()) ui.orgDraft.name = el.dataset.a || el.dataset.u;
+        return render();
+      case "project:recheck": return post("project:recheck");
       case "set:headless": return post("settings:update", { key: "headless", value: !S.settings.headless });
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
       case "set:theme":
@@ -813,6 +846,10 @@
         ui.gen.picked = new Set(m.cases.map((_, i) => i));
         return generator();
       case "needsPlaywright": return render();
+      case "sf:orgs":
+        ui.sfOrgs = m.error ? null : m.orgs;
+        ui.sfOrgsError = m.error || "";
+        return render();
     }
   });
 

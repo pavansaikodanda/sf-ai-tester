@@ -10,6 +10,7 @@ import { readStatus, recordResult, forgetCase, readAll } from "../core/status";
 import { collectReport, writeExcel, writePdf } from "../core/export";
 import { LoginOptions, OrgConfig, TestCase, TestMode, TestSuite } from "../core/types";
 import { SAMPLE_SUITE } from "../sample";
+import { detectProjectOrg, describeOrg, listOrgs } from "../core/sfcli";
 
 const ORGS_KEY = "sfAiTester.orgs";
 const ACTIVE_ORG_KEY = "sfAiTester.activeOrg";
@@ -60,6 +61,47 @@ export class ConsolePanel {
     panel.webview.onDidReceiveMessage((m: Msg) => this.handle(m).catch((e) => this.toast("error", (e as Error).message)), null, this.disposables);
     vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("sfAiTester") && this.pushState(), null, this.disposables);
     this.watch();
+    void this.syncProjectOrg();
+    vscode.workspace.onDidChangeWorkspaceFolders(() => void this.syncProjectOrg(), null, this.disposables);
+  }
+
+  /** Default org of the open Salesforce DX project, as last detected (shown in the console). */
+  private project: { target: string; source: string; status: string; orgName?: string } | undefined;
+
+  /**
+   * When VS Code is opened on a Salesforce DX project whose default org is already authorised in the sf CLI,
+   * use that org directly - no login form, password or passkey (the CLI token is used via frontdoor).
+   */
+  private async syncProjectOrg() {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const detected = folder ? detectProjectOrg(folder) : undefined;
+    if (!detected) {
+      this.project = undefined;
+      return this.pushState();
+    }
+    this.project = { ...detected, status: "checking" };
+    this.pushState();
+    const org = await describeOrg(detected.target).catch(() => undefined);
+    if (!org) {
+      this.project = { ...detected, status: "not found" };
+      this.toast("warn", `Project org "${detected.target}" is not authorised in the sf CLI. Run: sf org login web --alias ${detected.target}`);
+      return this.pushState();
+    }
+    if (!org.connected) {
+      this.project = { ...detected, status: org.status };
+      this.toast("warn", `Project org "${org.alias ?? org.username}" is not connected (${org.status}). Run: sf org login web --alias ${org.alias ?? org.username}`);
+      return this.pushState();
+    }
+    const orgs = this.orgs();
+    const existing = orgs.find((o) => o.authMode === "sfcli" && o.sfAlias === org.username);
+    let name = existing?.name ?? org.alias ?? org.username;
+    if (!existing) for (let n = 2; orgs.some((o) => o.name === name); n++) name = `${org.alias ?? org.username} (${n})`;
+    const entry: OrgConfig = { name, authMode: "sfcli", sfAlias: org.username, loginUrl: org.instanceUrl ?? "", username: org.username, source: "project" };
+    await this.ctx.globalState.update(ORGS_KEY, [...orgs.filter((o) => o.name !== name), entry]);
+    await this.ctx.globalState.update(ACTIVE_ORG_KEY, name);
+    this.project = { ...detected, status: "connected", orgName: name };
+    this.toast("ok", `Using "${name}" from this Salesforce project (sf CLI) - no login needed.`);
+    this.pushState();
   }
 
   private watcher: vscode.FileSystemWatcher | undefined;
@@ -182,6 +224,7 @@ export class ConsolePanel {
       hasPlaywright,
       orgs: this.orgs().map(({ password, ...o }) => o),
       activeOrg: this.activeOrgName() ?? null,
+      project: this.project ?? null,
       suites: this.suites().map((f) => ({ file: f, label: path.basename(f) })),
       suiteFile: file ?? null,
       suite: suite ?? null,
@@ -224,6 +267,7 @@ export class ConsolePanel {
         if (org.authMode !== "sfcli" && !/^https:\/\/\S+$/.test(org.loginUrl ?? "")) throw new Error("Login URL must start with https://");
         if (org.authMode === "password" && !org.username) throw new Error("Username is required.");
         if (org.authMode === "sfcli" && !org.sfAlias) throw new Error("sf CLI alias is required.");
+        if (org.authMode === "sfcli" && !/^[w.@+-]+$/.test(org.sfAlias!)) throw new Error("That alias has spaces or special characters - use the org username, or pick it from LOAD CONNECTED ORGS.");
         const clean: OrgConfig = {
           name: org.name.trim(),
           authMode: org.authMode,
@@ -248,6 +292,15 @@ export class ConsolePanel {
       case "org:select":
         await this.ctx.globalState.update(ACTIVE_ORG_KEY, m.name);
         return this.pushState();
+      case "sf:list":
+        try {
+          this.post({ type: "sf:orgs", orgs: await listOrgs() });
+        } catch (e) {
+          this.post({ type: "sf:orgs", orgs: [], error: "Could not run the sf CLI - is it installed? (npm i -g @salesforce/cli)" });
+        }
+        return;
+      case "project:recheck":
+        return this.syncProjectOrg();
       case "org:login":
         return this.login(m.name);
 

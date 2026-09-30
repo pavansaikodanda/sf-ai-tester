@@ -138,6 +138,26 @@ npx playwright test --config playwright.sf-ai.config.ts
 ```
 The exit code is non-zero if any case isn't `passed`.
 
+## Salesforce DX projects: no login needed
+
+Open VS Code on a Salesforce DX project (a folder with `sfdx-project.json`) and open Mission Control. The tester reads the
+project's default org (`.sf/config.json` → `target-org`, then the legacy `.sfdx/sfdx-config.json`, then your global
+`sf` default), checks it with `sf org display`, and if it is connected:
+
+- adds it as an **sf CLI** org marked **PROJECT** and makes it the active org
+- logs in through the CLI's token (`sf org open --url-only`) in the background: no password, no login form
+
+If the project org isn't connected, the header shows **SFDX · … NOT CONNECTED** with the command to fix it
+(`sf org login web --alias <org>`) and a **RECHECK** button. In the org form, **SF CLI → LOAD CONNECTED ORGS** lists every
+org the CLI knows about so you can pick one instead of typing it.
+
+Notes:
+- Salesforce's optional "Add a passkey / phone number" prompts are skipped automatically. If an org **enforces** passkey
+  registration, Salesforce requires it even for CLI logins: a window opens once for you to verify, and the saved session
+  is reused afterwards.
+- CLI access tokens and frontdoor URLs are never logged or written anywhere except the browser session file in
+  `.sf-ai-tester/auth/` (git-ignored).
+
 ## Passkeys, MFA and SSO
 
 Salesforce's login page now asks for the username first and then shows a password field, or a **passkey** prompt
