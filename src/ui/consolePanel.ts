@@ -343,6 +343,8 @@ export class ConsolePanel {
         this.log(">>> Abort requested.");
         return;
 
+      case "result:get":
+        return this.sendResult(m.id, m.mode);
       case "report:open":
         if (m.runDir) await vscode.env.openExternal(vscode.Uri.file(path.join(m.runDir, "report.html")));
         return;
@@ -421,6 +423,28 @@ export class ConsolePanel {
     const pick = await vscode.window.showInformationMessage(`SF AI Tester report saved (${written.map((f) => path.extname(f).slice(1).toUpperCase()).join(" + ")}).`, "Open", "Show in Folder");
     if (pick === "Open") for (const f of written) await vscode.env.openExternal(vscode.Uri.file(f));
     if (pick === "Show in Folder") await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(written[0]));
+  }
+
+  /** Full details of a case latest run in one mode (steps, defects, attempts, trail) plus its screenshots. */
+  private sendResult(id: string, mode: "manual" | "automation") {
+    const file = this.suiteFile();
+    const st = file ? readStatus(this.workspace(), this.suiteKey(file))[id]?.[mode] : undefined;
+    if (!st) return this.post({ type: "result", id, mode, error: "This case has not been run in this mode yet." });
+    let result: any;
+    try {
+      const run = JSON.parse(fs.readFileSync(path.join(st.runDir, "results.json"), "utf8"));
+      result = (run.results as any[]).filter((r) => r.id === id && r.mode === mode).pop();
+    } catch {
+      // run folder removed - fall back to the summary kept in the status file
+    }
+    const images: { name: string; data: string }[] = [];
+    const dir = path.join(st.runDir, "evidence", `${id}-${mode}`);
+    for (const e of result?.evidence ?? []) {
+      const f = path.join(dir, path.basename(e));
+      if (images.length >= 8 || !/\.(png|jpe?g)$/i.test(f) || !fs.existsSync(f) || fs.statSync(f).size > 3_000_000) continue;
+      images.push({ name: path.basename(f), data: `data:image/${/png$/i.test(f) ? "png" : "jpeg"};base64,${fs.readFileSync(f).toString("base64")}` });
+    }
+    this.post({ type: "result", id, mode, status: st, result: result ?? null, images });
   }
 
   private async deleteOrg(name: string) {

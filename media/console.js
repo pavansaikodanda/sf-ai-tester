@@ -431,11 +431,60 @@
     const meta = p.live
       ? p.state === "queued" ? "waiting in queue" : `${modelShort(p.model)} · ${p.state === "escalated" ? "second opinion" : "executing"}`
       : p.state === "idle" ? "click to run" : `${modelShort(p.model)} · ${dur(p.durationMs)} · ${ago(p.at)}`;
-    return `<div class="pod ${p.state}" data-act="run:pod" data-id="${esc(c.id)}" data-mode="${mode}" data-pod="${esc(c.id)}:${mode}" title="${esc(p.summary || `Run ${mode} test`)}">
+    // Not run yet: click runs it. Finished: click opens the result details; the ▶ button re-runs.
+    const done = !p.live && p.state !== "idle";
+    return `<div class="pod ${p.state}" data-act="${done ? "result:open" : "run:pod"}" data-id="${esc(c.id)}" data-mode="${mode}" data-pod="${esc(c.id)}:${mode}" title="${esc(done ? "Click for details" : p.summary || `Run ${mode} test`)}">
       <div class="ring">${ICON[p.state] || "◇"}</div>
       <div class="info"><div class="lbl">${mode === "manual" ? "MANUAL" : "AUTOMATION"}</div><div class="st">${LABEL[p.state] || p.state}</div><div class="mt">${esc(meta)}</div></div>
-      <span class="play">${p.live ? "" : "▶ RUN"}</span>
+      ${p.live ? "" : done
+        ? `<span class="pod-actions"><span class="details">DETAILS</span><button class="ghost sm rerun" data-act="run:pod" data-id="${esc(c.id)}" data-mode="${mode}" title="Run again">▶</button></span>`
+        : `<span class="play">▶ RUN</span>`}
     </div>`;
+  }
+
+  /** Why a case did not pass, visible on the card without expanding anything. */
+  function failLines(c) {
+    const rows = ["manual", "automation"]
+      .map((m) => ({ m, st: !S.live[`${c.id}:${m}`] && S.status[c.id]?.[m] }))
+      .filter((x) => x.st && x.st.status !== "passed");
+    if (!rows.length) return "";
+    return `<div class="fail-lines">${rows.map(({ m, st }) => `
+      <div class="fail-line ${st.status}" data-act="result:open" data-id="${esc(c.id)}" data-mode="${m}" title="Click for the full failure report">
+        <b>${m === "manual" ? "MANUAL" : "AUTO"} · ${esc(st.status.toUpperCase())}</b><span>${esc(st.summary)}</span><i>DETAILS ›</i>
+      </div>`).join("")}</div>`;
+  }
+
+  /** Full result for one case + mode: steps with observations, defects, model attempts, agent log, screenshots. */
+  function resultModal(m) {
+    if (m.error) return openModal(`<h2>${esc(m.id)} · ${m.mode.toUpperCase()}</h2><p>${esc(m.error)}</p><div class="row end"><button class="ghost" data-act="modal:close">CLOSE</button></div>`);
+    const c = S.suite?.cases.find((x) => x.id === m.id) || { title: "", expected: [], steps: [] };
+    const st = m.status, r = m.result || {};
+    const steps = r.steps?.length
+      ? `<table class="rtable"><tr><th>#</th><th>Step</th><th>Result</th><th>What the AI observed</th></tr>${r.steps.map((s, i) => `<tr class="${esc(s.status)}"><td>${i + 1}</td><td>${esc(s.step)}</td><td><span class="pill-s ${esc(s.status)}">${esc(s.status.toUpperCase())}</span></td><td>${esc(s.actual)}</td></tr>`).join("")}</table>`
+      : `<ol>${c.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><div class="muted" style="font-size:12.5px">No step-by-step verdict for this run${r.trail?.length ? " — see the agent action log below for what it actually did" : ""}.</div>`;
+    const attempts = (r.attempts || []).length > 1
+      ? `<h4>Model attempts</h4><div class="attempts">${r.attempts.map((a) => `<div class="att ${esc(a.status)}"><b>${esc(modelShort(a.model))}</b> <span class="pill-s ${esc(a.status)}">${esc(a.status.toUpperCase())}</span><div>${esc(a.summary)}</div></div>`).join('<div class="arrow">→</div>')}</div>` : "";
+    const defects = (r.defects || []).length
+      ? `<h4>Defects</h4>${r.defects.map((d) => `<div class="defect-box"><b>[${esc(d.severity.toUpperCase())}] ${esc(d.title)}</b><div>${esc(d.details)}</div></div>`).join("")}` : "";
+    const trailSrc = (r.attempts || []).filter((a) => a.trail?.length);
+    const trails = trailSrc.length ? trailSrc.map((a) => ({ model: a.model, lines: a.trail })) : r.trail?.length ? [{ model: r.model, lines: r.trail }] : [];
+    const trail = trails.length
+      ? `<details class="trail-box"><summary>Agent action log (${trails.reduce((n, t) => n + t.lines.length, 0)} actions)</summary>${trails.map((t) => `<div class="tm">${esc(modelShort(t.model))}</div><ol>${t.lines.map((l) => `<li class="${l.startsWith("»") ? "note" : ""}">${esc(l)}</li>`).join("")}</ol>`).join("")}</details>` : "";
+    const shots = (m.images || []).length
+      ? `<h4>Screenshots</h4><div class="shots-grid">${m.images.map((im) => `<a data-act="shot:zoom" data-src="${im.data}" title="${esc(im.name)}"><img src="${im.data}" alt="${esc(im.name)}"><span>${esc(im.name)}</span></a>`).join("")}</div>` : "";
+    openModal(`<h2>${esc(m.id)} · ${m.mode === "manual" ? "MANUAL" : "AUTOMATION"} <span class="pill-s ${esc(st.status)}" style="font-size:12px;vertical-align:middle">${esc(st.status.toUpperCase())}</span></h2>
+      <div class="muted" style="margin:-8px 0 12px">${esc(c.title)} · ${esc(modelShort(st.model))} · ${esc(dur(st.durationMs))} · ${esc(ago(st.at))}</div>
+      <div class="verdict ${esc(st.status)}"><b>${st.status === "passed" ? "Result" : "Why it did not pass"}</b><div>${esc(st.summary)}</div></div>
+      <h4>What was tried</h4>${steps}
+      <h4>Expected</h4><ul>${c.expected.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>
+      ${attempts}${defects}${shots}${trail}
+      <div class="row end" style="margin-top:14px">
+        ${st.specFile ? `<button class="sm" data-act="spec:open" data-file="${esc(st.specFile)}">SPEC ↗</button>` : ""}
+        <button class="sm" data-act="report:open" data-dir="${esc(st.runDir)}">FULL REPORT ↗</button>
+        <button class="ghost" data-act="modal:close">CLOSE</button>
+        <button class="primary" data-act="result:rerun" data-id="${esc(m.id)}" data-mode="${esc(m.mode)}" ${S.busy ? "disabled" : ""}>▶ RE-RUN</button>
+      </div>`);
+    document.querySelector(".modal")?.classList.add("wide");
   }
 
   function card(c, i) {
@@ -457,6 +506,7 @@
         <div class="cactions"><button class="ghost sm" data-act="case:expand" data-id="${esc(c.id)}">${open ? "－" : "＋"}</button><button class="ghost sm" data-act="case:edit" data-id="${esc(c.id)}" title="Edit">✎</button><button class="ghost sm" data-act="case:delete" data-id="${esc(c.id)}" title="Delete">✕</button></div>
       </div>
       <div class="pods">${pod(c, "manual")}${pod(c, "automation")}</div>
+      ${failLines(c)}
       ${open ? `<div class="detail">
         <div><h4>STEPS</h4><ol>${c.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></div>
         <div><h4>EXPECTED</h4><ul>${c.expected.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
@@ -656,7 +706,24 @@
         ui.pendingClose = true;
         return post("case:save", { case: tc, originalId: el.dataset.orig || undefined });
       }
+      case "result:open":
+        openModal(`<h2>${esc(id)} · ${esc(el.dataset.mode.toUpperCase())}</h2><div class="scanning"><div class="orb"></div><div class="txt">LOADING RESULT</div></div>`);
+        return post("result:get", { id, mode: el.dataset.mode });
+      case "result:rerun":
+        closeModal();
+        if (S.busy) return toast("warn", "A mission is already running — wait for it or abort.");
+        return startRun([id], el.dataset.mode);
+      case "shot:zoom": {
+        // Lightbox on top of the report, so closing it returns to the report.
+        const lb = document.createElement("div");
+        lb.className = "lightbox";
+        lb.innerHTML = `<img src="${el.dataset.src}">`;
+        lb.onclick = () => lb.remove();
+        document.body.appendChild(lb);
+        return;
+      }
       case "run:pod": {
+        e.stopPropagation();
         if (S.busy) return toast("warn", "A mission is already running — wait for it or abort.");
         if (S.live[`${id}:${el.dataset.mode}`]) return;
         return startRun([id], el.dataset.mode);
@@ -847,6 +914,7 @@
         ui.gen.picked = new Set(m.cases.map((_, i) => i));
         return generator();
       case "needsPlaywright": return render();
+      case "result": return resultModal(m);
       case "sf:orgs":
         ui.sfOrgs = m.error ? null : m.orgs;
         ui.sfOrgsError = m.error || "";

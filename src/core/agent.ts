@@ -75,6 +75,10 @@ Salesforce UI guidance:
 - Prefer direct URLs where possible: <instance>/lightning/o/<Object>/list, /lightning/o/<Object>/new,
   /lightning/r/<Object>/<Id>/view, /lightning/setup/SetupOneHome/home.
 - Toast messages confirm saves and show errors - read them.
+- Chat widgets / agents (e.g. Agentforce, Embedded Messaging) stream their replies and can be longer than the
+  visible panel. Wait until the reply has finished (the text stops changing between two snapshots a few seconds
+  apart), scroll inside the chat panel, and read the COMPLETE reply text from the snapshot before judging it.
+  Content may be inside an iframe - the snapshot includes it. Use fullPage screenshots for evidence.
 - Lookups need typing then picking an option from the dropdown; picklists are comboboxes.
 
 Rules:
@@ -174,7 +178,7 @@ export function playwrightMcp(ctx: {
       "--isolated",
       "--storage-state", ctx.auth.storageStatePath,
       "--output-dir", ctx.evidenceDir,
-      "--viewport-size", "1440,900",
+      "--viewport-size", "1920,1080",
       ...(ctx.headless ? ["--headless"] : []),
     ],
   };

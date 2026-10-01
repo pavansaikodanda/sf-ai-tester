@@ -32,8 +32,10 @@ export async function startBrowserHost(opts: { storageStatePath: string; headles
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sf-ai-tester-browser-"));
   const context: BrowserContext = await chromium.launchPersistentContext(profile, {
     headless: opts.headless,
-    viewport: { width: 1440, height: 900 },
-    args: [`--remote-debugging-port=${port}`, "--remote-debugging-address=127.0.0.1"],
+    // Visible: a maximized window whose page follows the window size (no fixed 1440x900 box), so long chat
+    // answers and wide layouts are fully visible. Headless: a large 1920x1080 page.
+    viewport: opts.headless ? { width: 1920, height: 1080 } : null,
+    args: [`--remote-debugging-port=${port}`, "--remote-debugging-address=127.0.0.1", ...(opts.headless ? [] : ["--start-maximized"])],
   });
   // Log the org session in: the saved storage state from authenticate().
   try {
