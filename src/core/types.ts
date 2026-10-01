@@ -85,6 +85,8 @@ export interface CaseResult extends AgentVerdict {
   turns: number;
   /** Model that produced this verdict */
   model?: string;
+  /** Fingerprint of the case definition this result was produced for (see caseHash) */
+  caseHash?: string;
   /** Agent SDK session, so a fallback model can resume it */
   sessionId?: string;
   /** What the agent actually did (tool calls and short notes), most recent last */
@@ -107,6 +109,14 @@ export interface RunOptions {
   useSubscription: boolean;
   /** continue: one browser for the whole run, cases pick up where the previous left off (default); fresh: clean browser per case */
   continuity?: "continue" | "fresh";
+  /** Run up to this many chains of cases at the same time (1-4), each with its own browser and agent */
+  workers?: number;
+  /** Automation re-runs: spec to replay with plain Playwright (no AI) for this case, if it has a passing, unchanged one */
+  replay?: (tc: TestCase) => string | undefined;
+  /** After the run, one AI pass that groups failures by root cause (default true) */
+  analyze?: boolean;
+  /** Org metadata (fields, required fields, picklists, validation rules) relevant to this case, for the agent */
+  orgContext?: (tc: TestCase) => string | undefined;
 }
 
 export type RunEvent =
@@ -115,4 +125,5 @@ export type RunEvent =
   | { type: "caseStart"; id: string; title: string; mode: "manual" | "automation"; model: string }
   | { type: "escalate"; id: string; mode: "manual" | "automation"; from: string; to: string; reason: string }
   | { type: "caseEnd"; result: CaseResult; runDir: string }
-  | { type: "runEnd"; runDir: string; results: CaseResult[] };
+  | { type: "runEnd"; runDir: string; results: CaseResult[] }
+  | { type: "analysis"; runDir: string; analysis: import("./analyst").RunAnalysis };

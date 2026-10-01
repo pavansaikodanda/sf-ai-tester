@@ -30,6 +30,7 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const modelShort = (m) => {
     if (!m || m === "default") return "DEFAULT";
+    if (m === "replay") return "REPLAY · NO AI";
     const x = /claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(m);
     return x ? `${x[1].toUpperCase()} ${x[2]}${x[3] && x[3].length < 3 ? "." + x[3] : ""}` : m.toUpperCase();
   };
@@ -326,6 +327,21 @@
       <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">${st.continuity === "fresh"
         ? "Every case gets a clean browser and session - fully independent tests."
         : "One browser for the whole run; each case starts where the last ended. Cases that begin with the same steps skip them and continue."}</div>
+      <label class="f"><span>Parallel workers · <b style="color:var(--cyan)">${st.workers}</b></span><input type="range" min="1" max="4" step="1" value="${st.workers}" data-set="workers" style="width:100%;accent-color:var(--cyan)"></label>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">Runs up to ${st.workers} case chain${st.workers > 1 ? "s" : ""} at once, each with its own browser. Limited by your Claude plan's rate limits.</div>
+      <label class="f"><span>Automation re-runs</span></label>
+      <div class="seg">
+        <button class="${st.replaySpecs ? "on" : ""}" data-act="set:bool" data-k="replaySpecs" data-v="1">REPLAY SPEC</button>
+        <button class="${!st.replaySpecs ? "on" : ""}" data-act="set:bool" data-k="replaySpecs" data-v="0">AI EVERY TIME</button>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">${st.replaySpecs
+        ? "A case with a passing spec re-runs as plain Playwright in seconds - AI only steps in to heal the spec or confirm a defect."
+        : "Every automation run asks the AI to rebuild and check the spec."}</div>
+      <label class="f"><span>AI assists</span></label>
+      <div class="seg">
+        <button class="${st.orgAware ? "on" : ""}" data-act="set:bool" data-k="orgAware" data-v="${st.orgAware ? 0 : 1}" title="Read required fields, picklists and validation rules from the org via the sf CLI">ORG-AWARE ${st.orgAware ? "ON" : "OFF"}</button>
+        <button class="${st.analyzeRuns ? "on" : ""}" data-act="set:bool" data-k="analyzeRuns" data-v="${st.analyzeRuns ? 0 : 1}" title="After a run with failures, group them by root cause">RUN ANALYST ${st.analyzeRuns ? "ON" : "OFF"}</button>
+      </div>
       <label class="f"><span>Max agent turns per case · <b style="color:var(--cyan)">${st.maxTurns}</b></span><input type="range" min="20" max="200" step="10" value="${st.maxTurns}" data-set="maxTurns" style="width:100%;accent-color:var(--cyan)"></label>
     </div>`;
   }
@@ -360,6 +376,7 @@
         ${sel.length ? `<button class="danger sm" data-act="case:delete-sel" ${busy ? "disabled" : ""}>DELETE</button>` : ""}
       </div>
       ${all.length ? runAllBar(cases, busy) : ""}
+      ${analysisCard()}
       <div class="stats-line">${all.length} CASES · MANUAL <b>${t.manual.passed}/${t.manual.run}</b> PASSED · AUTOMATION <b>${t.automation.passed}/${t.automation.run}</b> PASSED</div>
       <div class="cards">${sectioned(cases) || (all.length ? `<div class="empty">No cases match “${esc(ui.filter)}”.</div>`
         : `<div class="empty"><div class="big">MATRIX EMPTY</div>Generate test cases from a requirement, or write one yourself.<br><br>
@@ -384,6 +401,38 @@
     const n = cases.length || 1;
     const seg = (k, c) => `<span style="width:${(s[k] / n) * 100}%;background:${c}"></span>`;
     return `<span class="minibar" title="${m}: ${s.passed} passed, ${s.failed} failed, ${s.blocked} blocked, ${s.error} error">${seg("passed", "var(--green)")}${seg("failed", "var(--red)")}${seg("blocked", "var(--amber)")}${seg("error", "var(--purple)")}</span>`;
+  }
+
+  /** Latest AI run analysis for this suite: failures grouped by root cause, with next steps. */
+  const KIND = {
+    "app-defect": ["APP DEFECT", "var(--red)"],
+    environment: ["ENVIRONMENT", "var(--amber)"],
+    "test-design": ["TEST DESIGN", "var(--violet)"],
+    flaky: ["FLAKY", "var(--cyan)"],
+    tooling: ["TOOLING", "var(--purple)"],
+  };
+  function analysisCard() {
+    const a = S.analysis;
+    if (!a || ui.hideAnalysis === a.generatedAt) return "";
+    const open = !ui.collapsed.has("__analysis");
+    return `<div class="analysis">
+      <div class="analysis-head" data-act="analysis:toggle">
+        <span class="analysis-badge">✦ AI RUN ANALYSIS</span>
+        <b>${esc(a.headline)}</b>
+        <span class="muted mono" style="font-size:11px;white-space:nowrap">${a.failures}/${a.total} not passed · ${esc(modelShort(a.model))} · ${esc(ago(a.generatedAt))}</span>
+        <button class="ghost sm" data-act="analysis:hide" title="Hide until the next run">✕</button>
+      </div>
+      ${open ? `<div class="analysis-body">
+        <p>${esc(a.summary)}</p>
+        ${a.groups.map((g) => { const [label, color] = KIND[g.kind] || [g.kind, "var(--muted)"]; return `
+          <div class="cause" style="--c:${color}">
+            <div class="cause-head"><span class="kind">${label}</span><b>${esc(g.title)}</b>
+              <span class="cause-cases">${g.cases.map((id) => `<button class="sm ghost" data-act="analysis:case" data-id="${esc(id)}">${esc(id)}</button>`).join("")}</span></div>
+            <div>${esc(g.explanation)}</div>
+            <div class="next">→ ${esc(g.nextStep)}</div>
+          </div>`; }).join("")}
+      </div>` : ""}
+    </div>`;
   }
 
   function runAllBar(cases, busy) {
@@ -691,6 +740,16 @@
       case "set:headless": return post("settings:update", { key: "headless", value: !S.settings.headless });
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
       case "set:continuity": return post("settings:update", { key: "continuity", value: el.dataset.v });
+      case "set:bool": return post("settings:update", { key: el.dataset.k, value: el.dataset.v === "1" });
+      case "analysis:toggle": if (e.target.closest("button")) return; ui.collapsed.has("__analysis") ? ui.collapsed.delete("__analysis") : ui.collapsed.add("__analysis"); persist(); return render();
+      case "analysis:hide": ui.hideAnalysis = S.analysis?.generatedAt; return render();
+      case "analysis:case": {
+        // Jump to the case: filter to it and open its result report for the mode that did not pass.
+        const st = S.status[id] || {};
+        const mode = st.manual && st.manual.status !== "passed" ? "manual" : st.automation && st.automation.status !== "passed" ? "automation" : "manual";
+        openModal(`<h2>${esc(id)}</h2><div class="scanning"><div class="orb"></div><div class="txt">LOADING RESULT</div></div>`);
+        return post("result:get", { id, mode });
+      }
       case "set:theme":
         // Switch instantly; the host persists it and echoes it back in the next state.
         if (el.dataset.v === "flight" && ui.theme !== "flight") setTimeout(bootSequence, 0);
@@ -923,6 +982,7 @@
         ui.gen.picked = new Set(m.cases.map((_, i) => i));
         return generator();
       case "needsPlaywright": return render();
+      case "analysis:new": toast("warn", "AI analysis: " + m.headline); return;
       case "result": return resultModal(m);
       case "sf:orgs":
         ui.sfOrgs = m.error ? null : m.orgs;

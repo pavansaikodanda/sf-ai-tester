@@ -4,6 +4,7 @@ import type ExcelJS from "exceljs";
 import { loadSuite } from "./suite";
 import { ModeStatus, SuiteStatus } from "./status";
 import { CaseResult, Status, TestCase } from "./types";
+import type { RunAnalysis } from "./analyst";
 
 type Mode = "manual" | "automation";
 const MODES: Mode[] = ["manual", "automation"];
@@ -26,6 +27,8 @@ export interface SuiteRecord {
   name: string;
   context?: string;
   cases: CaseRecord[];
+  /** Latest AI run analysis for this suite, if any */
+  analysis?: RunAnalysis;
 }
 export interface ReportData {
   generatedAt: Date;
@@ -51,6 +54,12 @@ export function collectReport(workspaceDir: string, suiteFiles: string[], status
   };
   const orgs = new Set<string>();
   const suites: SuiteRecord[] = [];
+  let analyses: Record<string, RunAnalysis> = {};
+  try {
+    analyses = JSON.parse(fs.readFileSync(path.join(workspaceDir, ".sf-ai-tester", "analysis.json"), "utf8"));
+  } catch {
+    analyses = {};
+  }
   for (const file of suiteFiles) {
     let suite;
     try {
@@ -65,6 +74,7 @@ export function collectReport(workspaceDir: string, suiteFiles: string[], status
       key,
       name: suite.name,
       context: suite.context,
+      analysis: analyses[key],
       cases: suite.cases.map((tc) => {
         const rec: CaseRecord = { tc, section: sectionOf(tc) };
         for (const m of MODES) {
@@ -261,6 +271,23 @@ export async function writeExcel(data: ReportData, outFile: string) {
   if (fa.rowCount === 1) fa.addRow(["No failures, blocked or errored executions."]);
   wrapAll(fa, 2);
 
+  // AI root-cause analysis (latest per suite)
+  if (data.suites.some((s) => s.analysis)) {
+    const an = wb.addWorksheet("AI Analysis", { views: [{ state: "frozen", ySplit: 1 }] });
+    an.columns = [
+      { header: "Suite", width: 24 }, { header: "Root cause", width: 14 }, { header: "Group", width: 36 },
+      { header: "Cases", width: 22 }, { header: "Explanation", width: 70 }, { header: "Next step", width: 50 },
+    ];
+    header(an, 1);
+    for (const s of data.suites) {
+      if (!s.analysis) continue;
+      const head = an.addRow([s.name, "SUMMARY", s.analysis.headline, `${s.analysis.failures}/${s.analysis.total} not passed`, s.analysis.summary, ""]);
+      head.font = { bold: true };
+      for (const g of s.analysis.groups) an.addRow([s.name, g.kind.toUpperCase(), g.title, g.cases.join(", "), g.explanation, g.nextStep]);
+    }
+    wrapAll(an, 2);
+  }
+
   // 4. Defect register
   const df = wb.addWorksheet("Defects", { views: [{ state: "frozen", ySplit: 1 }] });
   df.columns = [
@@ -375,6 +402,7 @@ export function buildDocument(data: ReportData, opts: { screenshots: boolean }):
       <table class="mini"><tr><td>Defects raised</td><td>${fails.reduce((n, f) => n + (f.exec.result?.defects.length ?? f.exec.status.defects), 0)}</td></tr>
       <tr><td>Escalated to fallback model</td><td>${allCases.flatMap((c) => MODES.map((m) => c[m])).filter((e) => (e?.result?.attempts?.length ?? 0) > 1).length}</td></tr></table></div></div>
   <p class="muted small">Passed = expected results verified. Failed = the application behaved differently from the expected result (confirmed by the fallback model when escalation is on). Blocked = the test could not run because of the environment (permissions, data, access). Error = an agent or tooling problem. Automation passes are verified by an independent re-run of the generated spec.</p>
+  ${data.suites.filter((s) => s.analysis).map((s) => `<h2>AI analysis · ${esc(s.name)}</h2><p><b>${esc(s.analysis!.headline)}</b></p><p>${esc(s.analysis!.summary)}</p>${s.analysis!.groups.map((g) => `<div class="defect"><b>[${esc(g.kind.toUpperCase())}] ${esc(g.title)}</b> <span class="muted">(${esc(g.cases.join(", "))})</span><p>${esc(g.explanation)}</p><p><b>Next step:</b> ${esc(g.nextStep)}</p></div>`).join("")}`).join("")}
   <h2>Results by suite</h2>${suiteTables}
   ${fails.length ? `<h2 class="pb">Failure documentation</h2><p class="muted">Each execution that did not pass, with what the AI tried, what it observed, and why it concluded as it did.</p>${failureDocs}` : `<h2>Failure documentation</h2><p>All executed tests passed.</p>`}
   </body></html>`;

@@ -3,7 +3,9 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { loadSuite, saveSuite } from "../core/suite";
-import { runSuite } from "../core/runner";
+import { runSuite, caseHash } from "../core/runner";
+import { OrgMeta, contextsForCases } from "../core/orgmeta";
+import type { RunAnalysis } from "../core/analyst";
 import { authenticate } from "../core/auth";
 import { generateCases } from "../core/generate";
 import { readStatus, recordResult, forgetCase, readAll } from "../core/status";
@@ -190,6 +192,7 @@ export class ConsolePanel {
       orgs: this.orgs().map(({ password, ...o }) => o),
       activeOrg: this.activeOrgName() ?? null,
       project: this.projectOrg.state ?? null,
+      analysis: file ? this.readAnalysis(this.suiteKey(file)) : null,
       suites: this.suites().map((f) => ({ file: f, label: path.basename(f) })),
       suiteFile: file ?? null,
       suite: suite ?? null,
@@ -205,6 +208,10 @@ export class ConsolePanel {
         maxTurns: cfg.get("maxTurns", 80),
         theme: cfg.get("theme", "neon"),
         continuity: cfg.get("continuity", "continue"),
+        workers: cfg.get("workers", 2),
+        replaySpecs: cfg.get("replaySpecs", true),
+        orgAware: cfg.get("orgAware", true),
+        analyzeRuns: cfg.get("analyzeRuns", true),
       },
     });
   }
@@ -385,6 +392,10 @@ export class ConsolePanel {
           maxTurns: "maxTurns",
           theme: "theme",
           continuity: "continuity",
+          workers: "workers",
+          replaySpecs: "replaySpecs",
+          orgAware: "orgAware",
+          analyzeRuns: "analyzeRuns",
         };
         if (allowed[m.key]) await this.cfg().update(allowed[m.key], m.value, vscode.ConfigurationTarget.Global);
         return;
@@ -449,6 +460,39 @@ export class ConsolePanel {
     this.post({ type: "result", id, mode, status: st, result: result ?? null, images });
   }
 
+  /** Org metadata reader when org-aware AI is on and the org is reachable through the sf CLI. */
+  private orgMeta(org?: OrgConfig): OrgMeta | undefined {
+    if (!org || !this.cfg().get("orgAware", true)) return;
+    const target = org.authMode === "sfcli" ? org.sfAlias : org.username;
+    if (!target || !/^[\w.@+-]+$/.test(target)) return;
+    try {
+      return new OrgMeta(target, path.join(this.workspace(), ".sf-ai-tester", "meta"));
+    } catch {
+      return undefined;
+    }
+  }
+
+  private analysisFile() {
+    return path.join(this.workspace(), ".sf-ai-tester", "analysis.json");
+  }
+  private readAnalysis(suiteKey: string): (RunAnalysis & { runDir: string }) | null {
+    try {
+      return JSON.parse(fs.readFileSync(this.analysisFile(), "utf8"))[suiteKey] ?? null;
+    } catch {
+      return null;
+    }
+  }
+  private saveAnalysis(suiteKey: string, analysis: RunAnalysis, runDir: string) {
+    let all: Record<string, unknown> = {};
+    try {
+      all = JSON.parse(fs.readFileSync(this.analysisFile(), "utf8"));
+    } catch {
+      all = {};
+    }
+    all[suiteKey] = { ...analysis, runDir };
+    fs.writeFileSync(this.analysisFile(), JSON.stringify(all, null, 2));
+  }
+
   private async deleteOrg(name: string) {
     await this.ctx.globalState.update(ORGS_KEY, this.orgs().filter((o) => o.name !== name));
     await this.ctx.secrets.delete(secretKey(name));
@@ -505,7 +549,20 @@ export class ConsolePanel {
         fs.mkdirSync(evidenceDir, { recursive: true });
         exploreCtx = { auth, toolRoot: this.ctx.extensionPath, evidenceDir, headless: this.cfg().get("headless", false) };
       }
+      let orgMeta: string | undefined;
+      const metaSrc = this.orgMeta(await this.orgWithSecret().catch(() => undefined));
+      if (metaSrc) {
+        const res = await Promise.race([
+          metaSrc.contextFor(prompt).catch(() => undefined),
+          new Promise<undefined>((r) => setTimeout(() => r(undefined), 60_000)),
+        ]);
+        if (res?.text) {
+          orgMeta = res.text;
+          this.log(`Org metadata for generation: ${res.objects.map((o) => o.label).join(", ")}`);
+        }
+      }
       const { cases, model } = await generateCases({
+        orgMeta,
         prompt,
         count: Math.max(1, Math.min(20, Number(count) || 5)),
         suiteContext: cur?.suite.context,
@@ -548,10 +605,28 @@ export class ConsolePanel {
     this.output.appendLine(`\n##### Run ${new Date().toLocaleString()} - ${cases.length} case(s), ${mode}`);
 
     try {
+      // Org-aware AI: real field/picklist/validation-rule metadata for the objects each case mentions.
+      const meta = this.orgMeta(org);
+      const orgContexts = meta
+        ? await contextsForCases(meta, cases.map((c) => ({ id: c.id, text: caseText(c) })), 60_000, (l) => this.log(l))
+        : {};
+      // Automation re-runs replay a passing spec without AI while the case is unchanged.
+      const prior = readStatus(ws, suiteKey);
+      const replay = this.cfg().get("replaySpecs", true)
+        ? (tc: TestCase) => {
+            const a = prior[tc.id]?.automation;
+            const ok = a?.status === "passed" && a.specFile && (!a.caseHash || a.caseHash === caseHash(tc)) && fs.existsSync(path.join(ws, a.specFile));
+            return ok ? a!.specFile : undefined;
+          }
+        : undefined;
       await runSuite(
         { ...cur.suite, cases },
         org,
         {
+          workers: this.cfg().get("workers", 2),
+          replay,
+          orgContext: (tc) => orgContexts[tc.id],
+          analyze: this.cfg().get("analyzeRuns", true),
           mode,
           workspaceDir: ws,
           toolRoot: this.ctx.extensionPath,
@@ -582,6 +657,10 @@ export class ConsolePanel {
               return this.pushState();
             case "runEnd":
               return this.post({ type: "run:end", runDir: e.runDir, results: e.results });
+            case "analysis":
+              this.saveAnalysis(suiteKey, e.analysis, e.runDir);
+              this.post({ type: "analysis:new", headline: e.analysis.headline });
+              return this.pushState();
           }
         },
         this.abort,
@@ -635,4 +714,9 @@ function normaliseCase(c: any): TestCase {
   if (!tc.steps.length) throw new Error("Add at least one step.");
   if (!tc.expected.length) throw new Error("Add at least one expected result.");
   return tc;
+}
+
+/** Everything a case says, for spotting which org objects it involves. */
+function caseText(c: TestCase): string {
+  return [c.title, c.description, ...(c.preconditions ?? []), ...c.steps, ...c.expected].filter(Boolean).join("\n");
 }

@@ -8,6 +8,8 @@ export interface GenerateRequest {
   prompt: string;
   count: number;
   suiteContext?: string;
+  /** Live org metadata (required fields, picklists, validation rules) for the objects in the requirement */
+  orgMeta?: string;
   existingIds: string[];
   /** When set, the agent may look around the logged-in org (read-only) to ground the cases */
   explore?: { auth: AuthSession; toolRoot: string; evidenceDir: string; headless: boolean };
@@ -52,7 +54,19 @@ export async function generateCases(req: GenerateRequest): Promise<{ cases: Test
 """
 ${req.prompt}
 """
-${req.suiteContext ? `\nOrg / suite context: ${req.suiteContext}\n` : ""}
+${req.suiteContext ? `\nOrg / suite context: ${req.suiteContext}\n` : ""}${
+    req.orgMeta
+      ? `
+Metadata from the LIVE org for the objects involved (authoritative - use these exact field labels, picklist values
+and validation-rule error messages):
+${req.orgMeta}
+
+Because this metadata is available: for every active validation rule and required field that applies to the
+requirement, include a negative test that triggers it and checks for the exact error message or required-field
+error. Use real picklist values in steps and expected results.
+`
+      : ""
+  }
 Guidelines:
 - Cover the happy path first, then validation rules, negative paths, permissions and edge cases.
 - Steps must be concrete UI actions in Salesforce Lightning Experience (tabs, buttons, field labels) that a

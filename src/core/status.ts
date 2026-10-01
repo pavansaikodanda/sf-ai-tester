@@ -11,6 +11,8 @@ export interface ModeStatus {
   runDir: string;
   specFile?: string;
   defects: number;
+  /** Case fingerprint when this ran - a passing spec is only replayed while it is unchanged */
+  caseHash?: string;
 }
 
 /** caseId -> latest manual / automation result, per suite file */
@@ -43,6 +45,7 @@ export function recordResult(workspaceDir: string, suiteKey: string, result: Cas
     runDir,
     specFile: result.specFile,
     defects: result.defects.length,
+    caseHash: result.caseHash,
   };
   fs.mkdirSync(path.dirname(file(workspaceDir)), { recursive: true });
   fs.writeFileSync(file(workspaceDir), JSON.stringify(all, null, 2));

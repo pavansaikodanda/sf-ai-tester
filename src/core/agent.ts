@@ -25,6 +25,10 @@ export interface AgentContext {
   carryOver?: { fromCase: string; sharedSteps: number; prevStatus: string };
   /** Bulk runs: the browser is still open from this earlier case (fresh session, same browser) */
   browserContinues?: string;
+  /** Automation: a previously passing spec failed on replay - heal it or confirm a defect */
+  replayFailure?: { specFile: string; output: string };
+  /** Org metadata relevant to this case (from the sf CLI) */
+  orgContext?: string;
 }
 
 export const SPEC_DIR = "tests/sf-ai";
@@ -105,6 +109,10 @@ function caseBrief(tc: TestCase, ctx: AgentContext): string {
     `Steps:\n${tc.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
     `Expected results:\n${tc.expected.map((e) => `- ${e}`).join("\n")}`,
     tc.data ? `Test data (JSON): ${JSON.stringify(tc.data)}` : "",
+    ctx.orgContext
+      ? `Org metadata for the objects in this test (from the live org - use the exact labels, required fields,
+picklist values and validation-rule messages below when acting and when checking expected results):\n${ctx.orgContext}`
+      : "",
     `Save every screenshot with an absolute filename inside ${ctx.evidenceDir.replace(/\\/g, "/")}/ ` +
       `(e.g. ${ctx.evidenceDir.replace(/\\/g, "/")}/${tc.id}-step1.png).`,
   ];
@@ -154,6 +162,25 @@ entry in "steps" per numbered step.`;
 
 function automationPrompt(tc: TestCase, ctx: AgentContext): string {
   const spec = `${SPEC_DIR}/${tc.id}.spec.ts`;
+  if (ctx.replayFailure) {
+    // Self-healing: the spec used to pass and was replayed without AI; it now fails.
+    return `${caseBrief(tc, ctx)}
+
+TASK (self-heal automation): "${ctx.replayFailure.specFile}" passed before and was just replayed with plain Playwright,
+but it now FAILS. Last part of the Playwright output:
+"""
+${ctx.replayFailure.output.slice(-3500)}
+"""
+
+Decide which it is:
+- The SCRIPT broke (a locator, label, timing or page structure changed while the app still meets the expected
+  results): read the spec, inspect the page with the Playwright MCP browser, make the smallest fix that restores it,
+  and re-run: npx playwright test --config ${PW_CONFIG} ${ctx.replayFailure.specFile}
+- The APPLICATION no longer meets an expected result: do not change the assertions to hide it - report "failed"
+  with a defect describing what changed.
+Never weaken assertions to make it pass. Return your verdict in the required JSON format with "specFile" set to
+"${ctx.replayFailure.specFile}"; in "summary" say whether you healed the script (and what changed) or found a defect.`;
+  }
   return `${caseBrief(tc, ctx)}
 
 TASK (test automation): Write a robust, reusable Playwright Test spec for this test case at "${spec}".
@@ -192,6 +219,12 @@ Save screenshots with absolute filenames inside ${ctx.evidenceDir.replace(/\\/g,
 Return your own complete verdict in the required JSON format, with one entry in "steps" per numbered step of the test case.`;
 }
 
+/**
+ * Speed: screenshots are written to disk as evidence but not streamed into the model (it reads pages through
+ * text snapshots), and the browser tools are loaded up front (alwaysLoad) so no turn is spent searching for them.
+ */
+const FAST_ARGS = ["--image-responses", "omit"];
+
 export function playwrightMcp(ctx: {
   toolRoot: string;
   auth: AuthSession;
@@ -202,7 +235,7 @@ export function playwrightMcp(ctx: {
   const cli = path.join(ctx.toolRoot, "node_modules", "@playwright", "mcp", "cli.js");
   if (ctx.cdpEndpoint) {
     // Attach to the runner-owned browser: pages survive when this agent session ends.
-    return { type: "stdio", command: "node", args: [cli, "--cdp-endpoint", ctx.cdpEndpoint, "--output-dir", ctx.evidenceDir] };
+    return { type: "stdio", command: "node", args: [cli, "--cdp-endpoint", ctx.cdpEndpoint, ...FAST_ARGS, "--output-dir", ctx.evidenceDir], alwaysLoad: true };
   }
   return {
     type: "stdio",
@@ -215,7 +248,9 @@ export function playwrightMcp(ctx: {
       "--output-dir", ctx.evidenceDir,
       "--viewport-size", "1920,1080",
       ...(ctx.headless ? ["--headless"] : []),
+      ...FAST_ARGS,
     ],
+    alwaysLoad: true,
   };
 }
 

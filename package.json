@@ -1,6 +1,6 @@
 {
   "name": "sf-ai-tester",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "main": "./dist/extension.js",
   "scripts": {
     "build": "node build.mjs",
@@ -183,6 +183,28 @@
           ],
           "default": "continue",
           "description": "What happens between test cases in a bulk run."
+        },
+        "sfAiTester.workers": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 4,
+          "description": "Parallel workers for bulk runs (each has its own browser and agent). Cases that share opening steps stay together on one worker."
+        },
+        "sfAiTester.replaySpecs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automation re-runs replay a passing generated spec with plain Playwright (no AI) while the case is unchanged; AI is only used to heal the spec or confirm a defect when it fails."
+        },
+        "sfAiTester.orgAware": {
+          "type": "boolean",
+          "default": true,
+          "description": "Read org metadata through the sf CLI (required fields, picklist values, validation rules) and give it to test generation and runs."
+        },
+        "sfAiTester.analyzeRuns": {
+          "type": "boolean",
+          "default": true,
+          "description": "After a run with failures, one AI pass groups them by root cause and suggests next steps."
         }
       }
     },

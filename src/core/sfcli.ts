@@ -22,9 +22,16 @@ export interface ProjectOrg {
 
 const SAFE_TARGET = /^[\w.@+-]+$/;
 
-function sf(args: string[], timeoutMs = 60_000): Promise<any> {
+/**
+ * On Windows `sf` is a .cmd shim, so it runs through the shell, which joins arguments with spaces. Arguments with
+ * spaces (SOQL queries) are wrapped in double quotes; callers only pass values without `"`, `%`, `^` or `&`.
+ */
+const shellArg = (a: string) => (process.platform === "win32" && /[\s()',]/.test(a) ? `"${a}"` : a);
+
+export function sf(args: string[], timeoutMs = 60_000): Promise<any> {
   return new Promise((resolve, reject) => {
-    execFile("sf", [...args, "--json"], { shell: process.platform === "win32", timeout: timeoutMs, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+    const child = execFile("sf", [...args.map(shellArg), "--json"], { shell: process.platform === "win32", maxBuffer: 50 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+      clearTimeout(timer);
       // sf exits non-zero for "not connected" but still prints JSON; prefer the JSON when present.
       try {
         resolve(JSON.parse(stdout));
@@ -32,6 +39,12 @@ function sf(args: string[], timeoutMs = 60_000): Promise<any> {
         reject(err ?? new Error("Unexpected output from sf CLI"));
       }
     });
+    // On Windows the shell wrapper hides the real sf process; kill the whole tree so a hung call can't linger.
+    const timer = setTimeout(() => {
+      if (process.platform === "win32" && child.pid) execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => undefined);
+      else child.kill();
+      reject(new Error(`sf ${args.slice(0, 2).join(" ")} timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
   });
 }
 

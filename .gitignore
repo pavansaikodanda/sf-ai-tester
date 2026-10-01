@@ -7,3 +7,5 @@ dist
 /test-cases/
 /tests/
 /playwright.sf-ai.config.ts
+*.tmp.js
+*.tmp.ts

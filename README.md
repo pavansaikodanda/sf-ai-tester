@@ -71,6 +71,19 @@ all suites ("sheets") or just the current one:
 Every run records the agent's action trail (browser actions, commands and reasoning notes), so even a run that errors out
 before reaching a verdict documents what it tried.
 
+### Faster runs, smarter AI
+Where the AI is used - and where it is not (all in **Mission Parameters**):
+
+| Feature | What it does |
+|---|---|
+| **Replay passing specs** (`sfAiTester.replaySpecs`, on) | An automation case that already has a passing generated spec re-runs it with plain Playwright - seconds, no AI. Only if the spec fails does the AI step in, to **self-heal** the script (locator/timing changes) or confirm a real defect. |
+| **Parallel workers** (`sfAiTester.workers`, 2) | Runs up to 4 case chains at once, each with its own browser and agent. Cases that share opening steps stay on one worker so carry-over still works. |
+| **Org-aware AI** (`sfAiTester.orgAware`, on) | Reads the objects a case or requirement mentions through the sf CLI - required fields, real picklist values, active validation rules - and gives them to the agent and to *Generate with AI* (which then adds a negative test per validation rule). Cached 24h; never blocks a run (60s budget). |
+| **AI run analyst** (`sfAiTester.analyzeRuns`, on) | After a run with failures, one AI pass groups them by root cause (app defect / environment / test design / flaky / tooling) with a next step for each. Shown at the top of the Test Matrix and in exported reports. |
+
+Agent sessions also load their browser tools up front and keep screenshots out of the model context (saved to disk
+as evidence), which removes a wasted turn and a lot of tokens from every case.
+
 ### Bulk runs: continue instead of restarting
 **Mission Parameters → Between test cases** (`sfAiTester.continuity`):
 

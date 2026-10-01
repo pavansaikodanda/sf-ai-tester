@@ -1,9 +1,11 @@
 import * as fs from "fs";
 import * as path from "path";
 import { spawn } from "child_process";
+import { createHash } from "crypto";
 import { authenticate, AuthSession } from "./auth";
 import { AgentContext, PW_CONFIG, SPEC_DIR, runCaseWithAgent } from "./agent";
 import { BrowserHost, startBrowserHost } from "./browserHost";
+import { analyzeRun } from "./analyst";
 import { writeReport } from "./report";
 import { CaseResult, OrgConfig, RunEvent, RunOptions, TestCase, TestSuite } from "./types";
 
@@ -66,107 +68,166 @@ export async function runSuite(
   fs.mkdirSync(runDir, { recursive: true });
   const results: CaseResult[] = [];
   const continuity = opts.continuity ?? "continue";
-  const startHost = () =>
+  const startHost = (log: (m: string) => void) =>
     startBrowserHost({ storageStatePath: auth.storageStatePath, headless: opts.headless }).catch((e) => {
       log(`  (shared browser unavailable: ${(e as Error).message} - each agent session will open its own browser)`);
       return undefined;
     });
-  // "continue": one browser for the whole run - no closing/reopening/re-login between cases, and each case
-  // starts on the page the previous one ended. "fresh": a clean browser per case.
-  let runHost: BrowserHost | undefined = continuity === "continue" ? await startHost() : undefined;
-  /** Last manual agent session on the shared browser - the next case can pick it up if its opening steps match. */
-  let lastManual: { tc: TestCase; sessionId: string; status: string; chain: number } | undefined;
-  /** Case that last drove the shared browser (any mode), for the "browser continues from" note. */
-  let lastOnBrowser: string | undefined;
 
-  try {
-    for (const tc of suite.cases) {
-      if (abort.signal.aborted) break;
-      const mode = tc.mode ?? opts.mode;
-      const modes: ("manual" | "automation")[] = mode === "both" ? ["manual", "automation"] : [mode];
+  // Work units: consecutive cases that share opening steps form one chain (carry-over needs them in order on the
+  // same browser). With one worker everything is a single chain, so continuity spans the whole run.
+  const workers = Math.max(1, Math.min(4, opts.workers ?? 1));
+  const chains: TestCase[][] = [];
+  for (const tc of suite.cases) {
+    const last = chains[chains.length - 1];
+    if (last && continuity === "continue" && sharedPrefix(last[last.length - 1].steps, tc.steps) > 0) last.push(tc);
+    else chains.push([tc]);
+  }
+  const queue = workers === 1 ? [suite.cases] : chains;
+  const poolSize = Math.min(workers, queue.length);
+  if (poolSize > 1) log(`Running ${suite.cases.length} case(s) on ${poolSize} parallel workers (${queue.length} chain(s)).`);
+  let nextChain = 0;
 
-      for (const m of modes) {
-        if (abort.signal.aborted) break;
-        const evidenceDir = path.join(runDir, "evidence", `${tc.id}-${m}`);
-        fs.mkdirSync(evidenceDir, { recursive: true });
+  const finish = (result: CaseResult, tc: TestCase, log: (m: string) => void) => {
+    result.caseHash = caseHash(tc);
+    log(`=== ${tc.id} [${result.mode}] ${result.status.toUpperCase()} (${result.model}): ${result.summary}`);
+    results.push(result);
+    emit({ type: "caseEnd", result, runDir });
+    writeRun(runDir, suite, org, auth, results);
+  };
 
-        // Cheap model first; anything short of a clean pass is re-run on the next (stronger) model, so
-        // flaky agent behaviour is retried and reported defects are confirmed before they reach you.
-        const models = opts.models.length ? opts.models : [""];
-        const attempts: NonNullable<CaseResult["attempts"]> = [];
-        let result!: CaseResult;
-        // The browser for this case: the run-wide one, or (fresh mode) one shared by this case's model attempts
-        // so an escalation still continues on the page the previous model left off.
-        const host = runHost ?? (await startHost());
-        const ownsHost = !runHost;
+  /** One worker: its own browser (in continue mode) and carry-over state, pulling chains off the shared queue. */
+  const worker = async (w: number) => {
+    const log = (msg: string) => emit({ type: "log", message: poolSize > 1 ? msg.replace(/^(\n?)/, `$1[W${w}] `) : msg });
+    // "continue": one browser for everything this worker runs - no closing/reopening/re-login between cases.
+    const runHost: BrowserHost | undefined = continuity === "continue" ? await startHost(log) : undefined;
+    /** Last manual agent session on this browser - the next case can pick it up if its opening steps match. */
+    let lastManual: { tc: TestCase; sessionId: string; status: string; chain: number } | undefined;
+    /** Case that last drove this browser (any mode), for the "browser continues from" note. */
+    let lastOnBrowser: string | undefined;
+    try {
+      while (!abort.signal.aborted && nextChain < queue.length) {
+        const chain = queue[nextChain++];
+        for (const tc of chain) {
+          if (abort.signal.aborted) break;
+          const mode = tc.mode ?? opts.mode;
+          const modes: ("manual" | "automation")[] = mode === "both" ? ["manual", "automation"] : [mode];
 
-        // Same opening steps as the previous manual case on this browser? Carry its session over and skip them.
-        let carryOver: AgentContext["carryOver"];
-        let resume: AgentContext["resume"];
-        if (continuity === "continue" && host && m === "manual" && lastManual && lastOnBrowser === `${lastManual.tc.id}:manual`) {
-          const shared = sharedPrefix(lastManual.tc.steps, tc.steps);
-          if (shared > 0 && lastManual.status !== "error" && lastManual.chain < MAX_CARRY_CHAIN) {
-            carryOver = { fromCase: lastManual.tc.id, sharedSteps: shared, prevStatus: lastManual.status };
-            resume = { sessionId: lastManual.sessionId, model: "", status: lastManual.status, summary: "" };
-            log(`>>> ${tc.id} continues from ${lastManual.tc.id}: steps 1-${shared} are the same and already done in this browser`);
-          }
-        }
-        const browserContinues = continuity === "continue" && host && lastOnBrowser && !carryOver ? lastOnBrowser.split(":")[0] : undefined;
+          for (const m of modes) {
+            if (abort.signal.aborted) break;
+            const evidenceDir = path.join(runDir, "evidence", `${tc.id}-${m}`);
+            fs.mkdirSync(evidenceDir, { recursive: true });
 
-        try {
-          for (let i = 0; i < models.length; i++) {
-            const model = models[i];
-            if (i === 0) emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m, model });
-            log(`\n=== ${tc.id} [${m}] ${tc.title}${model ? ` (model: ${model})` : ""}${i > 0 && resume ? " - continuing previous session" : ""}`);
-            result = await runCaseWithAgent(tc, m, {
-              suite,
-              auth,
-              workspaceDir: opts.workspaceDir,
-              toolRoot: opts.toolRoot,
-              evidenceDir,
-              headless: opts.headless,
-              model,
-              maxTurns: opts.maxTurns,
-              useSubscription: opts.useSubscription,
-              abort,
-              log,
-              cdpEndpoint: host?.cdpEndpoint,
-              resume,
-              carryOver: i === 0 ? carryOver : undefined,
-              browserContinues: i === 0 ? browserContinues : undefined,
-            });
-            lastOnBrowser = `${tc.id}:${m}`;
-            if (m === "automation" && result.status === "passed") {
-              result = await verifySpec(result, opts.workspaceDir, auth, log);
+            // Automation re-run: replay the passing spec this case already has - plain Playwright, no AI.
+            const replayFile = m === "automation" ? opts.replay?.(tc) : undefined;
+            let replayFailure: AgentContext["replayFailure"];
+            if (replayFile) {
+              emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m, model: "replay" });
+              const rp = await replaySpec(tc, replayFile, opts.workspaceDir, auth, log);
+              if (rp.passed) {
+                finish(rp.passed, tc, log);
+                continue;
+              }
+              replayFailure = { specFile: replayFile, output: rp.failure ?? "" };
+              log(`>>> ${tc.id} replayed spec failed - handing it to the AI to heal the script or confirm a defect`);
             }
-            result.model = model || "default";
-            attempts.push({ model: result.model, status: result.status, summary: result.summary, trail: result.trail });
-            const next = models[i + 1];
-            if (result.status === "passed" || !next || abort.signal.aborted) break;
-            // Hand over: the next model resumes this conversation (and, with the shared browser, this page).
-            resume = result.sessionId ? { sessionId: result.sessionId, model: result.model, status: result.status, summary: result.summary } : undefined;
-            const how = resume ? (host ? "continuing on the same page and session" : "continuing the same session") : "starting fresh";
-            const reason = `${model || "default"} reported ${result.status}: ${result.summary.slice(0, 200)}`;
-            log(`>>> Escalating ${tc.id} [${m}] to ${next} (${how}) - ${reason}`);
-            emit({ type: "escalate", id: tc.id, mode: m, from: model, to: next, reason });
+
+            // Cheap model first; anything short of a clean pass is re-run on the next (stronger) model, so
+            // flaky agent behaviour is retried and reported defects are confirmed before they reach you.
+            const models = opts.models.length ? opts.models : [""];
+            const attempts: NonNullable<CaseResult["attempts"]> = [];
+            let result!: CaseResult;
+            // The browser for this case: the worker's run-long one, or (fresh mode) one shared by this case's
+            // model attempts so an escalation still continues on the page the previous model left off.
+            const host = runHost ?? (await startHost(log));
+            const ownsHost = !runHost;
+
+            // Same opening steps as the previous manual case on this browser? Carry its session over and skip them.
+            let carryOver: AgentContext["carryOver"];
+            let resume: AgentContext["resume"];
+            if (continuity === "continue" && host && m === "manual" && lastManual && lastOnBrowser === `${lastManual.tc.id}:manual`) {
+              const shared = sharedPrefix(lastManual.tc.steps, tc.steps);
+              if (shared > 0 && lastManual.status !== "error" && lastManual.chain < MAX_CARRY_CHAIN) {
+                carryOver = { fromCase: lastManual.tc.id, sharedSteps: shared, prevStatus: lastManual.status };
+                resume = { sessionId: lastManual.sessionId, model: "", status: lastManual.status, summary: "" };
+                log(`>>> ${tc.id} continues from ${lastManual.tc.id}: steps 1-${shared} are the same and already done in this browser`);
+              }
+            }
+            const browserContinues = continuity === "continue" && host && lastOnBrowser && !carryOver ? lastOnBrowser.split(":")[0] : undefined;
+
+            try {
+              for (let i = 0; i < models.length; i++) {
+                const model = models[i];
+                if (i === 0 && !replayFile) emit({ type: "caseStart", id: tc.id, title: tc.title, mode: m, model });
+                log(`\n=== ${tc.id} [${m}] ${tc.title}${model ? ` (model: ${model})` : ""}${i > 0 && resume ? " - continuing previous session" : ""}`);
+                result = await runCaseWithAgent(tc, m, {
+                  suite,
+                  auth,
+                  workspaceDir: opts.workspaceDir,
+                  toolRoot: opts.toolRoot,
+                  evidenceDir,
+                  headless: opts.headless,
+                  model,
+                  maxTurns: opts.maxTurns,
+                  useSubscription: opts.useSubscription,
+                  abort,
+                  log,
+                  cdpEndpoint: host?.cdpEndpoint,
+                  resume,
+                  carryOver: i === 0 ? carryOver : undefined,
+                  browserContinues: i === 0 ? browserContinues : undefined,
+                  replayFailure: i === 0 ? replayFailure : undefined,
+                  orgContext: opts.orgContext?.(tc),
+                });
+                lastOnBrowser = `${tc.id}:${m}`;
+                if (m === "automation" && result.status === "passed") {
+                  result = await verifySpec(result, opts.workspaceDir, auth, log);
+                }
+                result.model = model || "default";
+                attempts.push({ model: result.model, status: result.status, summary: result.summary, trail: result.trail });
+                const next = models[i + 1];
+                if (result.status === "passed" || !next || abort.signal.aborted) break;
+                // Hand over: the next model resumes this conversation (and, with the shared browser, this page).
+                resume = result.sessionId ? { sessionId: result.sessionId, model: result.model, status: result.status, summary: result.summary } : undefined;
+                const how = resume ? (host ? "continuing on the same page and session" : "continuing the same session") : "starting fresh";
+                const reason = `${model || "default"} reported ${result.status}: ${result.summary.slice(0, 200)}`;
+                log(`>>> Escalating ${tc.id} [${m}] to ${next} (${how}) - ${reason}`);
+                emit({ type: "escalate", id: tc.id, mode: m, from: model, to: next, reason });
+              }
+            } finally {
+              if (ownsHost) await host?.close();
+            }
+            if (m === "manual") {
+              lastManual = result.sessionId
+                ? { tc, sessionId: result.sessionId, status: result.status, chain: carryOver ? (lastManual?.chain ?? 0) + 1 : 1 }
+                : undefined;
+            }
+            result.attempts = attempts;
+            finish(result, tc, log);
           }
-        } finally {
-          if (ownsHost) await host?.close();
         }
-        if (m === "manual") {
-          lastManual = result.sessionId
-            ? { tc, sessionId: result.sessionId, status: result.status, chain: carryOver ? (lastManual?.chain ?? 0) + 1 : 1 }
-            : undefined;
-        }
-        result.attempts = attempts;
-        log(`=== ${tc.id} [${m}] ${result.status.toUpperCase()} (${result.model}): ${result.summary}`);
-        results.push(result);
-        emit({ type: "caseEnd", result, runDir });
-        writeRun(runDir, suite, org, auth, results);
       }
+    } finally {
+      await runHost?.close();
     }
-  } finally {
-    await runHost?.close();
+  };
+
+  await Promise.all(Array.from({ length: Math.max(1, poolSize) }, (_, i) => worker(i + 1)));
+
+  // AI analyst: one pass over all failures, grouped by root cause, with next steps.
+  if (opts.analyze !== false && !abort.signal.aborted && results.some((r) => r.status !== "passed")) {
+    const model = opts.models[opts.models.length - 1];
+    log(`\n>>> AI analyst reviewing ${results.filter((r) => r.status !== "passed").length} failure(s) with ${model || "the default model"}...`);
+    try {
+      const analysis = await analyzeRun(suite, results, { model, useSubscription: opts.useSubscription, workspaceDir: opts.workspaceDir, abort });
+      if (analysis) {
+        fs.writeFileSync(path.join(runDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+        log(`>>> AI analysis: ${analysis.headline}`);
+        emit({ type: "analysis", runDir, analysis });
+      }
+    } catch (e) {
+      log(`  (AI analysis skipped: ${(e as Error).message})`);
+    }
   }
 
   const reportPath = writeRun(runDir, suite, org, auth, results);
@@ -203,6 +264,61 @@ function ensureAutomationProject(workspaceDir: string, log: (m: string) => void)
 }
 
 /** Re-runs the generated spec outside the agent so a "passed" verdict is backed by a real green run. */
+/** Runs one generated spec with plain Playwright (no AI). Returns the exit code and the tail of its output. */
+async function runSpec(specFile: string, workspaceDir: string, auth: AuthSession, log: (m: string) => void) {
+  let output = "";
+  const started = Date.now();
+  const code = await new Promise<number>((resolve) => {
+    const child = spawn("npx", ["playwright", "test", "--config", PW_CONFIG, specFile], {
+      cwd: workspaceDir,
+      shell: process.platform === "win32",
+      env: { ...process.env, SF_INSTANCE_URL: auth.instanceUrl, SF_STORAGE_STATE: auth.storageStatePath },
+    });
+    const take = (d: Buffer) => {
+      const s = String(d);
+      output = (output + s).slice(-6000);
+      log(`  | ${s.trimEnd()}`);
+    };
+    child.stdout.on("data", take);
+    child.stderr.on("data", take);
+    child.on("close", (c) => resolve(c ?? 1));
+    child.on("error", () => resolve(1));
+  });
+  return { code, output, ms: Date.now() - started };
+}
+
+/** Fingerprint of what a case tests: a stored spec is only replayed while this is unchanged. */
+export function caseHash(tc: TestCase): string {
+  const body = JSON.stringify([tc.title, tc.preconditions ?? [], tc.steps, tc.expected, tc.data ?? null]);
+  return createHash("sha1").update(body).digest("hex").slice(0, 16);
+}
+
+/**
+ * Automation re-run without AI: execute the passing spec this case already has. Returns a passed result,
+ * or the failure output so the agent can heal the script or confirm a defect.
+ */
+async function replaySpec(tc: TestCase, specFile: string, workspaceDir: string, auth: AuthSession, log: (m: string) => void) {
+  log(`\n=== ${tc.id} [automation] ${tc.title} - replaying ${specFile} (no AI)`);
+  const run = await runSpec(specFile, workspaceDir, auth, log);
+  if (run.code !== 0) return { passed: undefined, failure: run.output };
+  const passed: CaseResult = {
+    id: tc.id,
+    title: tc.title,
+    mode: "automation",
+    status: "passed",
+    summary: `Replayed ${specFile} with Playwright - passed in ${Math.round(run.ms / 1000)}s, no AI needed.`,
+    steps: tc.steps.map((step) => ({ step, status: "passed" as const, actual: "Covered by the replayed spec." })),
+    defects: [],
+    evidence: [],
+    specFile,
+    durationMs: run.ms,
+    costUsd: 0,
+    turns: 0,
+    model: "replay",
+  };
+  return { passed, failure: undefined };
+}
+
 async function verifySpec(
   result: CaseResult,
   workspaceDir: string,
@@ -213,17 +329,7 @@ async function verifySpec(
     return { ...result, status: "error", summary: `Agent reported pass but spec file is missing: ${result.specFile}` };
   }
   log(`  verifying ${result.specFile} with an independent run...`);
-  const code = await new Promise<number>((resolve) => {
-    const child = spawn("npx", ["playwright", "test", "--config", PW_CONFIG, result.specFile!], {
-      cwd: workspaceDir,
-      shell: process.platform === "win32",
-      env: { ...process.env, SF_INSTANCE_URL: auth.instanceUrl, SF_STORAGE_STATE: auth.storageStatePath },
-    });
-    child.stdout.on("data", (d) => log(`  | ${String(d).trimEnd()}`));
-    child.stderr.on("data", (d) => log(`  | ${String(d).trimEnd()}`));
-    child.on("close", (c) => resolve(c ?? 1));
-    child.on("error", () => resolve(1));
-  });
+  const { code } = await runSpec(result.specFile, workspaceDir, auth, log);
   if (code === 0) return { ...result, summary: `${result.summary} (verified by independent re-run)` };
   return {
     ...result,
