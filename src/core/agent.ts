@@ -21,6 +21,10 @@ export interface AgentContext {
   cdpEndpoint?: string;
   /** Continue a previous model attempt: same conversation (and, with cdpEndpoint, the same browser page) */
   resume?: { sessionId: string; model: string; status: string; summary: string };
+  /** Bulk runs: this case shares its first steps with the previous case, whose session (and page) it picks up */
+  carryOver?: { fromCase: string; sharedSteps: number; prevStatus: string };
+  /** Bulk runs: the browser is still open from this earlier case (fresh session, same browser) */
+  browserContinues?: string;
 }
 
 export const SPEC_DIR = "tests/sf-ai";
@@ -105,6 +109,37 @@ function caseBrief(tc: TestCase, ctx: AgentContext): string {
       `(e.g. ${ctx.evidenceDir.replace(/\\/g, "/")}/${tc.id}-step1.png).`,
   ];
   return lines.filter(Boolean).join("\n\n");
+}
+
+/** Fresh session on a browser that is still open from the previous case in a bulk run. */
+function browserNote(mode: "manual" | "automation", ctx: AgentContext): string {
+  if (!ctx.browserContinues) return "";
+  return `
+
+BROWSER STATE: the browser is still open (and logged in) from the previous test case ${ctx.browserContinues}. Do not
+log in again. Start from wherever it is: if the current page is already the starting point this test needs, use it;
+otherwise navigate.${mode === "automation" ? " The spec you write must still be self-contained (it navigates from scratch)." : ""}`;
+}
+
+/**
+ * Bulk runs: the next case starts with the same steps as the previous one, which were just performed in this
+ * session and browser - continue after them instead of repeating them.
+ */
+function continuationPrompt(tc: TestCase, ctx: AgentContext): string {
+  const { fromCase, sharedSteps } = ctx.carryOver!;
+  const range = sharedSteps === 1 ? "Step 1 is" : `Steps 1-${sharedSteps} are`;
+  return `NEXT TEST CASE (new verdict, separate from ${fromCase}).
+
+${caseBrief(tc, ctx)}
+
+${range} identical to test case ${fromCase} and were already performed in this browser during this conversation.
+Do not repeat them: take one snapshot to confirm the page is still in the state those steps produced, then continue
+from step ${sharedSteps + 1}. If the page is not in that state (e.g. it navigated away or a dialog closed), redo only
+what is needed to get back there.
+
+Verify every expected result of THIS test case against what you observe now. Report all steps in "steps": for the
+carried-over ones use the outcome from ${fromCase} and start "actual" with "Carried over from ${fromCase}: ".
+Return the verdict in the required JSON format.`;
 }
 
 function manualPrompt(tc: TestCase, ctx: AgentContext): string {
@@ -248,7 +283,11 @@ export async function runCaseWithAgent(
     ...(ctx.resume ? { resume: ctx.resume.sessionId } : {}),
   };
 
-  const prompt = ctx.resume ? handoverPrompt(tc, mode, ctx) : mode === "manual" ? manualPrompt(tc, ctx) : automationPrompt(tc, ctx);
+  const prompt = ctx.carryOver
+    ? continuationPrompt(tc, ctx)
+    : ctx.resume
+      ? handoverPrompt(tc, mode, ctx)
+      : (mode === "manual" ? manualPrompt(tc, ctx) : automationPrompt(tc, ctx)) + browserNote(mode, ctx);
   let sessionId: string | undefined;
   let verdict: AgentVerdict | undefined;
   let costUsd = 0;

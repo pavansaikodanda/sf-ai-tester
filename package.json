@@ -1,6 +1,6 @@
 {
   "name": "sf-ai-tester",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "main": "./dist/extension.js",
   "scripts": {
     "build": "node build.mjs",
@@ -170,6 +170,19 @@
           ],
           "default": "neon",
           "description": "Look of the Mission Control console."
+        },
+        "sfAiTester.continuity": {
+          "type": "string",
+          "enum": [
+            "continue",
+            "fresh"
+          ],
+          "enumDescriptions": [
+            "One browser for the whole run; each case starts where the previous one ended, and cases that begin with the same steps continue the previous session instead of repeating them",
+            "A clean browser and session for every test case (fully independent tests)"
+          ],
+          "default": "continue",
+          "description": "What happens between test cases in a bulk run."
         }
       }
     },

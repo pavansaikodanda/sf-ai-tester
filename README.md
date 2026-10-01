@@ -71,6 +71,17 @@ all suites ("sheets") or just the current one:
 Every run records the agent's action trail (browser actions, commands and reasoning notes), so even a run that errors out
 before reaching a verdict documents what it tried.
 
+### Bulk runs: continue instead of restarting
+**Mission Parameters → Between test cases** (`sfAiTester.continuity`):
+
+- **Continue** (default): one browser stays open for the whole run - no closing, reopening or logging in between
+  cases. Each case starts on the page the previous one ended. When a case starts with the **same steps** as the
+  previous manual case (e.g. both begin "open the site → open the chat"), it continues that agent session, confirms
+  the page is still in that state, and goes straight to the first new step; skipped steps are reported as
+  "Carried over from <case>". Chains restart after 5 cases so a conversation never grows without bound. Generated
+  automation specs always stay self-contained.
+- **Fresh**: a clean browser and session for every case, for fully independent tests (CLI: `--fresh`).
+
 ### Themes
 Switch themes with **NEON / FLIGHT / STOIC** in the console header (or the `sfAiTester.theme` setting):
 

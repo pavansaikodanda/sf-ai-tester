@@ -204,6 +204,7 @@ export class ConsolePanel {
         fallbackModel: cfg.get("fallbackModel", "claude-sonnet-5-5"),
         maxTurns: cfg.get("maxTurns", 80),
         theme: cfg.get("theme", "neon"),
+        continuity: cfg.get("continuity", "continue"),
       },
     });
   }
@@ -383,6 +384,7 @@ export class ConsolePanel {
           fallbackModel: "fallbackModel",
           maxTurns: "maxTurns",
           theme: "theme",
+          continuity: "continuity",
         };
         if (allowed[m.key]) await this.cfg().update(allowed[m.key], m.value, vscode.ConfigurationTarget.Global);
         return;
@@ -558,6 +560,7 @@ export class ConsolePanel {
           models: this.models(),
           maxTurns: this.cfg().get("maxTurns", 80),
           useSubscription: this.cfg().get("useSubscription", true),
+          continuity: this.cfg().get("continuity", "continue"),
         },
         (e) => {
           switch (e.type) {

@@ -318,6 +318,14 @@
       <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">Every case runs on the primary model first. Anything that doesn't pass is re-run on the fallback to retry flaky runs and confirm real defects.</div>
       <label class="f"><span>Login window</span></label>
       <div class="seg">${seg("headed", "VISIBLE")}${seg("auto", "AUTO")}${seg("headless", "HIDDEN")}</div>
+      <label class="f"><span>Between test cases (bulk runs)</span></label>
+      <div class="seg">
+        <button class="${st.continuity !== "fresh" ? "on" : ""}" data-act="set:continuity" data-v="continue">CONTINUE</button>
+        <button class="${st.continuity === "fresh" ? "on" : ""}" data-act="set:continuity" data-v="fresh">FRESH</button>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">${st.continuity === "fresh"
+        ? "Every case gets a clean browser and session - fully independent tests."
+        : "One browser for the whole run; each case starts where the last ended. Cases that begin with the same steps skip them and continue."}</div>
       <label class="f"><span>Max agent turns per case · <b style="color:var(--cyan)">${st.maxTurns}</b></span><input type="range" min="20" max="200" step="10" value="${st.maxTurns}" data-set="maxTurns" style="width:100%;accent-color:var(--cyan)"></label>
     </div>`;
   }
@@ -682,6 +690,7 @@
       case "project:recheck": return post("project:recheck");
       case "set:headless": return post("settings:update", { key: "headless", value: !S.settings.headless });
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
+      case "set:continuity": return post("settings:update", { key: "continuity", value: el.dataset.v });
       case "set:theme":
         // Switch instantly; the host persists it and echoes it back in the next state.
         if (el.dataset.v === "flight" && ui.theme !== "flight") setTimeout(bootSequence, 0);

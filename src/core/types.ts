@@ -105,6 +105,8 @@ export interface RunOptions {
   maxTurns: number;
   /** Strip ANTHROPIC_API_KEY so the Claude Code subscription login is used */
   useSubscription: boolean;
+  /** continue: one browser for the whole run, cases pick up where the previous left off (default); fresh: clean browser per case */
+  continuity?: "continue" | "fresh";
 }
 
 export type RunEvent =
