@@ -366,7 +366,21 @@ export class ConsolePanel {
         }
         const term = vscode.window.createTerminal({ name: "SF AI Tester setup", cwd: ws });
         term.show();
-        term.sendText("npm i -D @playwright/test && npx playwright install chromium");
+        // Two separate lines instead of "a && b": Windows PowerShell 5.1 (the default VS Code terminal on many
+        // machines) rejects "&&". The terminal runs them in order.
+        term.sendText("npm i -D @playwright/test");
+        term.sendText("npx playwright install chromium");
+        // Refresh the console once the package lands, so the "needs Playwright" notice clears by itself.
+        const marker = path.join(ws, "node_modules", "@playwright", "test", "package.json");
+        const started = Date.now();
+        const poll = setInterval(() => {
+          if (fs.existsSync(marker)) {
+            clearInterval(poll);
+            this.toast("ok", "Playwright installed - automation is ready.");
+            this.pushState();
+          } else if (Date.now() - started > 10 * 60_000) clearInterval(poll);
+        }, 3000);
+        this.disposables.push({ dispose: () => clearInterval(poll) });
         return;
       }
       case "folder:pick": {
