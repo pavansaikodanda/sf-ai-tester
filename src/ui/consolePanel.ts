@@ -5,6 +5,7 @@ import * as path from "path";
 import { loadSuite, saveSuite } from "../core/suite";
 import { runSuite, caseHash } from "../core/runner";
 import { OrgMeta, contextsForCases } from "../core/orgmeta";
+import { isSalesforceUrl, resolveTarget } from "../core/target";
 import type { RunAnalysis } from "../core/analyst";
 import { authenticate } from "../core/auth";
 import { generateCases } from "../core/generate";
@@ -198,6 +199,7 @@ export class ConsolePanel {
       suite: suite ?? null,
       suiteError: suiteError ?? null,
       status: file && ws ? readStatus(ws, this.suiteKey(file)) : {},
+      targets: suite ? Object.fromEntries(suite.cases.map((c) => [c.id, resolveTarget(c, suite!)])) : {},
       live: Object.fromEntries(this.live),
       busy: this.busy,
       settings: {
@@ -294,6 +296,15 @@ export class ConsolePanel {
         if (!cur) return;
         saveSuite(cur.file, { ...cur.suite, context: m.context || undefined });
         this.toast("ok", "Suite context saved.");
+        return this.pushState();
+      }
+      case "suite:target": {
+        const cur = this.loadCurrent();
+        if (!cur) return;
+        const baseUrl = String(m.baseUrl ?? "").trim();
+        if (baseUrl && !/^https?:\/\/\S+$/i.test(baseUrl)) throw new Error("Base URL must start with http:// or https://");
+        saveSuite(cur.file, { ...cur.suite, target: m.target, baseUrl: baseUrl || undefined });
+        this.toast("ok", m.target === "web" ? `Suite runs as WEB${baseUrl ? ` from ${baseUrl}` : ""} - no Salesforce login.` : m.target === "salesforce" ? "Suite runs against the connected Salesforce org." : "Target is detected per case.");
         return this.pushState();
       }
       case "suite:openFile": {
@@ -552,19 +563,29 @@ export class ConsolePanel {
     this.setBusy("gen");
     this.abort = new AbortController();
     try {
+      // Web suites (target web, or a non-Salesforce base URL) generate web tests and never touch the org.
+      const webSuite = cur?.suite.target === "web" || (cur?.suite.target !== "salesforce" && !!cur?.suite.baseUrl && !isSalesforceUrl(cur.suite.baseUrl));
       let exploreCtx;
       if (explore) {
-        const auth = await authenticate(await this.orgWithSecret(), path.join(ws, ".sf-ai-tester", "auth"), this.loginOptions(), {
-          log: (l) => this.log(l),
-          needsUser: this.needsUser,
-        });
-        this.post({ type: "needsUser", message: null });
+        let auth;
+        if (webSuite) {
+          const blank = path.join(ws, ".sf-ai-tester", "auth", "blank.storage.json");
+          fs.mkdirSync(path.dirname(blank), { recursive: true });
+          fs.writeFileSync(blank, JSON.stringify({ cookies: [], origins: [] }));
+          auth = { storageStatePath: blank, instanceUrl: cur?.suite.baseUrl ?? "about:blank" };
+        } else {
+          auth = await authenticate(await this.orgWithSecret(), path.join(ws, ".sf-ai-tester", "auth"), this.loginOptions(), {
+            log: (l) => this.log(l),
+            needsUser: this.needsUser,
+          });
+          this.post({ type: "needsUser", message: null });
+        }
         const evidenceDir = path.join(ws, ".sf-ai-tester", "generate");
         fs.mkdirSync(evidenceDir, { recursive: true });
         exploreCtx = { auth, toolRoot: this.ctx.extensionPath, evidenceDir, headless: this.cfg().get("headless", false) };
       }
       let orgMeta: string | undefined;
-      const metaSrc = this.orgMeta(await this.orgWithSecret().catch(() => undefined));
+      const metaSrc = webSuite ? undefined : this.orgMeta(await this.orgWithSecret().catch(() => undefined));
       if (metaSrc) {
         const res = await Promise.race([
           metaSrc.contextFor(prompt).catch(() => undefined),
@@ -577,6 +598,7 @@ export class ConsolePanel {
       }
       const { cases, model } = await generateCases({
         orgMeta,
+        web: webSuite ? { baseUrl: cur?.suite.baseUrl } : undefined,
         prompt,
         count: Math.max(1, Math.min(20, Number(count) || 5)),
         suiteContext: cur?.suite.context,
@@ -606,7 +628,11 @@ export class ConsolePanel {
       this.post({ type: "needsPlaywright" });
       throw new Error("Automation needs @playwright/test in this folder - click INSTALL PLAYWRIGHT.");
     }
-    const org = await this.orgWithSecret();
+    // An org is only needed when some selected case targets Salesforce; web-only runs work without one.
+    const sfCases = cases.filter((c) => resolveTarget(c, cur.suite) === "salesforce");
+    const org: OrgConfig = sfCases.length
+      ? await this.orgWithSecret()
+      : { name: "web", authMode: "interactive", loginUrl: cur.suite.baseUrl ?? "" };
     const suiteKey = this.suiteKey(cur.file);
     const modes = mode === "both" ? ["manual", "automation"] : [mode];
 
@@ -620,9 +646,9 @@ export class ConsolePanel {
 
     try {
       // Org-aware AI: real field/picklist/validation-rule metadata for the objects each case mentions.
-      const meta = this.orgMeta(org);
+      const meta = sfCases.length ? this.orgMeta(org) : undefined;
       const orgContexts = meta
-        ? await contextsForCases(meta, cases.map((c) => ({ id: c.id, text: caseText(c) })), 60_000, (l) => this.log(l))
+        ? await contextsForCases(meta, sfCases.map((c) => ({ id: c.id, text: caseText(c) })), 60_000, (l) => this.log(l))
         : {};
       // Automation re-runs replay a passing spec without AI while the case is unchanged.
       const prior = readStatus(ws, suiteKey);
@@ -722,6 +748,7 @@ function normaliseCase(c: any): TestCase {
     expected: list(c.expected),
     tags: list(c.tags),
     section: c.section ? String(c.section).trim() : undefined,
+    target: c.target === "web" || c.target === "salesforce" ? c.target : undefined,
   };
   if (!tc.id) throw new Error("Test case id is required.");
   if (!tc.title) throw new Error("Title is required.");

@@ -66,7 +66,7 @@ export async function analyzeRun(
   if (!bad.length) return;
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   const passed = results.filter((r) => r.status === "passed").map((r) => `${r.id}[${r.mode}]`);
-  const prompt = `You are the QA lead reviewing an automated Salesforce test run of suite "${suite.name}".
+  const prompt = `You are the QA lead reviewing an automated test run of suite "${suite.name}".
 ${suite.context ? `Context: ${suite.context}\n` : ""}
 ${results.length} executions: ${passed.length} passed${passed.length ? ` (${passed.join(", ")})` : ""}, ${bad.length} did not pass:
 

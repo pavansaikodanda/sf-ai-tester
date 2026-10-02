@@ -8,6 +8,8 @@ export interface GenerateRequest {
   prompt: string;
   count: number;
   suiteContext?: string;
+  /** Generating for a web application instead of Salesforce */
+  web?: { baseUrl?: string };
   /** Live org metadata (required fields, picklists, validation rules) for the objects in the requirement */
   orgMeta?: string;
   existingIds: string[];
@@ -49,7 +51,7 @@ const CASES_SCHEMA = {
 /** Drafts Salesforce test cases from a requirement. Tries each model in order until one returns cases. */
 export async function generateCases(req: GenerateRequest): Promise<{ cases: TestCase[]; model: string }> {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
-  const prompt = `You are a senior Salesforce QA lead. Write ${req.count} high-value test cases for this requirement:
+  const prompt = `You are a senior ${req.web ? "web application" : "Salesforce"} QA lead. Write ${req.count} high-value test cases for this requirement:
 
 """
 ${req.prompt}
@@ -69,7 +71,7 @@ error. Use real picklist values in steps and expected results.
   }
 Guidelines:
 - Cover the happy path first, then validation rules, negative paths, permissions and edge cases.
-- Steps must be concrete UI actions in Salesforce Lightning Experience (tabs, buttons, field labels) that a
+- Steps must be concrete UI actions ${req.web ? `in the web application${req.web.baseUrl ? ` at ${req.web.baseUrl}` : ""} (start step 1 by opening that URL; never involve Salesforce)` : "in Salesforce Lightning Experience (tabs, buttons, field labels)"} that a
   tester can follow literally. Expected results must be observable and checkable.
 - Set "section" to the feature area each case belongs to (e.g. "Lead Conversion"), identical for related cases.
 - Prefix any record names the tests create with "AI-TEST".

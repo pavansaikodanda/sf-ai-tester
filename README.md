@@ -71,6 +71,27 @@ all suites ("sheets") or just the current one:
 Every run records the agent's action trail (browser actions, commands and reasoning notes), so even a run that errors out
 before reaching a verdict documents what it tried.
 
+### Salesforce or plain web: the suite target
+Not every test is about Salesforce. Click **TARGET** in the Test Matrix (or set `target` / `baseUrl` in the YAML):
+
+| Target | Behaviour |
+|---|---|
+| **Auto** (default) | Per case: **WEB** when its steps/preconditions open a non-Salesforce URL (e.g. `http://localhost:8080`) or the suite base URL is not Salesforce; otherwise **SF**. |
+| **Salesforce** | Every case runs against the connected org (logged in automatically), with org metadata. |
+| **Web app** | No Salesforce login, no org metadata, generic web-QA instructions; the agent starts from the base URL or the URL in step 1. |
+
+```yaml
+name: Website agent
+target: web
+baseUrl: http://localhost:8080/conscendoIndex.html
+cases:
+  - id: CWA-001
+    target: salesforce   # optional per-case override
+```
+
+Each case shows a **WEB** or **SF** badge. A run with no Salesforce cases never logs in to the org. For every target the
+agent is told to follow the steps literally and in order and not to navigate anywhere a step does not say.
+
 ### Faster runs, smarter AI
 Where the AI is used - and where it is not (all in **Mission Parameters**):
 

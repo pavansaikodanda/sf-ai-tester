@@ -361,6 +361,7 @@
       <div class="suitebar">
         <select data-act-change="suite:select" title="Suite file">${suites || "<option>No suites</option>"}</select>
         <button class="sm" data-act="suite:new">＋ SUITE</button>
+        <button class="sm" data-act="suite:target" title="What this suite runs against: the Salesforce org, a web app, or detected per case">TARGET: ${esc({ web: "WEB", salesforce: "SALESFORCE" }[S.suite?.target] || "AUTO")}</button>
         <button class="sm" data-act="suite:context" title="Shared context sent with every case">CONTEXT</button>
         <button class="sm" data-act="suite:file" title="Open YAML">YAML ↗</button>
       </div>
@@ -558,7 +559,7 @@
     return `<div class="card ${ui.selected.has(c.id) ? "selected" : ""} ${hot ? "hot" : ""}" data-card="${esc(c.id)}" style="animation-delay:${Math.min(i, 12) * 35}ms">
       <div class="card-head">
         <input type="checkbox" class="check" data-act="sel:one" data-id="${esc(c.id)}" ${ui.selected.has(c.id) ? "checked" : ""}>
-        <span class="cid">${esc(c.id)}</span>
+        <span class="cid">${esc(c.id)}</span>${S.targets?.[c.id] === "web" ? `<span class="tag" title="Runs against a web app - no Salesforce" style="color:var(--cyan);border-color:var(--cyan)">WEB</span>` : `<span class="tag" title="Runs against the connected Salesforce org">SF</span>`}
         <div class="ctitle" data-act="case:expand" data-id="${esc(c.id)}">${esc(c.title)}<small>${c.steps.length} steps · ${c.expected.length} checks${(c.tags || []).length ? " · " + c.tags.map(esc).join(" · ") : ""}</small></div>
         <div class="cactions"><button class="ghost sm" data-act="case:expand" data-id="${esc(c.id)}">${open ? "－" : "＋"}</button><button class="ghost sm" data-act="case:edit" data-id="${esc(c.id)}" title="Edit">✎</button><button class="ghost sm" data-act="case:delete" data-id="${esc(c.id)}" title="Delete">✕</button></div>
       </div>
@@ -648,6 +649,10 @@
     openModal(`<h2>${isNew ? "NEW TEST CASE" : `EDIT ${esc(c.id)}`}</h2>
       <div class="two"><label class="f"><span>ID</span><input type="text" id="e-id" value="${esc(c.id)}"></label>
       <label class="f"><span>Tags (comma separated)</span><input type="text" id="e-tags" value="${esc((c.tags || []).join(", "))}"></label></div>
+      <label class="f"><span>Target</span><select id="e-target">
+        <option value="" ${!c.target ? "selected" : ""}>Same as suite (${esc({ web: "web", salesforce: "Salesforce" }[S.suite?.target] || "auto-detect")})</option>
+        <option value="salesforce" ${c.target === "salesforce" ? "selected" : ""}>Salesforce org</option>
+        <option value="web" ${c.target === "web" ? "selected" : ""}>Web app (no Salesforce)</option></select></label>
       <label class="f"><span>Section (groups cases; empty = ID prefix)</span><input type="text" id="e-section" list="e-sections" value="${esc(c.section || "")}" placeholder="${esc(c.id.includes("-") ? c.id.split("-")[0] : "GENERAL")}">
         <datalist id="e-sections">${[...new Set((S.suite?.cases || []).map(sectionOf))].map((s) => `<option value="${esc(s)}">`).join("")}</datalist></label>
       <label class="f"><span>Title</span><input type="text" id="e-title" value="${esc(c.title)}" placeholder="Create a new Account"></label>
@@ -699,6 +704,23 @@
       </div>
       <div class="muted" style="font-size:12.5px;margin-bottom:12px">Covers ${nSuites} suite${nSuites === 1 ? "" : "s"} using each case's latest manual and automation result.</div>
       <div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="primary" data-act="export:go" ${exp.xlsx || exp.pdf ? "" : "disabled"}>⤓ EXPORT</button></div>`);
+  }
+
+  /** Suite target: Salesforce org, web app (with base URL) or auto-detect per case. */
+  function targetModal() {
+    const t = ui.tgt;
+    const seg = (v, l) => `<button class="${t.target === v ? "on" : ""}" data-act="tgt:set" data-v="${v}">${l}</button>`;
+    const help = {
+      auto: "Each case is detected: it runs as WEB when its steps open a non-Salesforce URL (e.g. http://localhost:8080) or the base URL below is not Salesforce, otherwise against the connected org.",
+      salesforce: "Every case runs against the connected Salesforce org (logged in automatically).",
+      web: "Every case runs against a web app. No Salesforce login, no org metadata - the agent starts from the base URL or the URL in step 1.",
+    }[t.target];
+    openModal(`<h2>SUITE TARGET</h2>
+      <div class="seg">${seg("auto", "AUTO")}${seg("salesforce", "SALESFORCE")}${seg("web", "WEB APP")}</div>
+      <div class="muted" style="font-size:13px;margin:-2px 0 12px">${help}</div>
+      <label class="f"><span>Base URL for web tests (optional)</span><input type="url" id="t-base" value="${esc(t.baseUrl)}" placeholder="http://localhost:8080/conscendoIndex.html"></label>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">Individual cases can still override this in the case editor.</div>
+      <div class="row end"><button class="ghost" data-act="modal:close">CANCEL</button><button class="primary" data-act="tgt:save">SAVE</button></div>`);
   }
 
   function prompter(title, label, value, onOk) {
@@ -762,6 +784,13 @@
       case "suite:new": return prompter("NEW SUITE", "Suite name", "", (v) => v && post("suite:new", { name: v }));
       case "suite:context": return prompter("SUITE CONTEXT", "Shared context sent with every test (org setup, user profile, apps...)", S.suite?.context, (v) => post("suite:context", { context: v }));
       case "suite:file": return post("suite:openFile");
+      case "suite:target": ui.tgt = { target: S.suite?.target || "auto", baseUrl: S.suite?.baseUrl || "" }; return targetModal();
+      case "tgt:set": ui.tgt.baseUrl = $("#t-base")?.value ?? ui.tgt.baseUrl; ui.tgt.target = el.dataset.v; return targetModal();
+      case "tgt:save": {
+        const baseUrl = $("#t-base")?.value ?? ui.tgt.baseUrl; // read before the dialog closes
+        closeModal();
+        return post("suite:target", { target: ui.tgt.target, baseUrl });
+      }
       case "sel:all": { const all = S.suite?.cases || []; if (el.checked) all.forEach((c) => ui.selected.add(c.id)); else ui.selected.clear(); persist(); return render(); }
       case "sel:one": if (el.checked) ui.selected.add(id); else ui.selected.delete(id); persist(); return render();
       case "case:expand": ui.expanded.has(id) ? ui.expanded.delete(id) : ui.expanded.add(id); persist(); return render();
@@ -770,7 +799,7 @@
       case "case:delete": return confirmBox(`Delete test case ${id}?`, () => post("case:delete", { ids: [id] }));
       case "case:delete-sel": { const ids = [...ui.selected]; return confirmBox(`Delete ${ids.length} selected test case(s)?`, () => { ui.selected.clear(); persist(); post("case:delete", { ids }); }); }
       case "editor:save": {
-        const tc = { id: $("#e-id").value, title: $("#e-title").value, description: $("#e-desc").value, preconditions: lines("#e-pre"), steps: lines("#e-steps"), expected: lines("#e-exp"), tags: $("#e-tags").value.split(",").map((s) => s.trim()).filter(Boolean), section: $("#e-section").value.trim() || undefined };
+        const tc = { id: $("#e-id").value, title: $("#e-title").value, description: $("#e-desc").value, preconditions: lines("#e-pre"), steps: lines("#e-steps"), expected: lines("#e-exp"), tags: $("#e-tags").value.split(",").map((s) => s.trim()).filter(Boolean), section: $("#e-section").value.trim() || undefined, target: $("#e-target").value || undefined };
         ui.pendingClose = true;
         return post("case:save", { case: tc, originalId: el.dataset.orig || undefined });
       }

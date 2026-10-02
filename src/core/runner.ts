@@ -6,6 +6,7 @@ import { authenticate, AuthSession } from "./auth";
 import { AgentContext, PW_CONFIG, SPEC_DIR, runCaseWithAgent } from "./agent";
 import { BrowserHost, startBrowserHost } from "./browserHost";
 import { analyzeRun } from "./analyst";
+import { resolveTarget } from "./target";
 import { writeReport } from "./report";
 import { CaseResult, OrgConfig, RunEvent, RunOptions, TestCase, TestSuite } from "./types";
 
@@ -59,10 +60,16 @@ export async function runSuite(
   const needsAutomation = suite.cases.some((c) => (c.mode ?? opts.mode) !== "manual");
   if (needsAutomation) ensureAutomationProject(opts.workspaceDir, log);
 
-  const auth = await authenticate(org, path.join(toolDir, "auth"), opts.login, {
-    log,
-    needsUser: (message) => emit({ type: "needsUser", message }),
-  });
+  // Log in to the org only when some case actually targets Salesforce; web-only runs never touch the org.
+  const targets = new Map(suite.cases.map((tc) => [tc.id, resolveTarget(tc, suite)] as const));
+  const sfCount = [...targets.values()].filter((t) => t === "salesforce").length;
+  if (sfCount < suite.cases.length) log(`${suite.cases.length - sfCount} web case(s) (no Salesforce)${sfCount ? `, ${sfCount} Salesforce case(s)` : " - skipping the org login"}.`);
+  const auth: AuthSession = sfCount
+    ? await authenticate(org, path.join(toolDir, "auth"), opts.login, {
+        log,
+        needsUser: (message) => emit({ type: "needsUser", message }),
+      })
+    : blankSession(toolDir, suite.baseUrl);
 
   const runDir = path.join(toolDir, "runs", new Date().toISOString().replace(/[:.]/g, "-"));
   fs.mkdirSync(runDir, { recursive: true });
@@ -177,7 +184,9 @@ export async function runSuite(
                   carryOver: i === 0 ? carryOver : undefined,
                   browserContinues: i === 0 ? browserContinues : undefined,
                   replayFailure: i === 0 ? replayFailure : undefined,
-                  orgContext: opts.orgContext?.(tc),
+                  orgContext: targets.get(tc.id) === "salesforce" ? opts.orgContext?.(tc) : undefined,
+                  target: targets.get(tc.id),
+                  baseUrl: suite.baseUrl,
                 });
                 lastOnBrowser = `${tc.id}:${m}`;
                 if (m === "automation" && result.status === "passed") {
@@ -264,6 +273,15 @@ function ensureAutomationProject(workspaceDir: string, log: (m: string) => void)
 }
 
 /** Re-runs the generated spec outside the agent so a "passed" verdict is backed by a real green run. */
+/** Session for runs without Salesforce: an empty browser state, base URL as the "instance". */
+function blankSession(toolDir: string, baseUrl?: string): AuthSession {
+  const dir = path.join(toolDir, "auth");
+  fs.mkdirSync(dir, { recursive: true });
+  const storageStatePath = path.join(dir, "blank.storage.json");
+  fs.writeFileSync(storageStatePath, JSON.stringify({ cookies: [], origins: [] }));
+  return { storageStatePath, instanceUrl: baseUrl ?? "about:blank" };
+}
+
 /** Runs one generated spec with plain Playwright (no AI). Returns the exit code and the tail of its output. */
 async function runSpec(specFile: string, workspaceDir: string, auth: AuthSession, log: (m: string) => void) {
   let output = "";

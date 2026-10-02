@@ -43,12 +43,18 @@ export interface TestCase {
   section?: string;
   /** Test data the agent may use (record names, field values, ...) */
   data?: Record<string, unknown>;
+  /** What this case runs against; overrides the suite (default: the suite target, else auto-detected) */
+  target?: "salesforce" | "web";
 }
 
 export interface TestSuite {
   name: string;
   /** Free-text context about the org/app shared with every test case */
   context?: string;
+  /** auto (default): per case - web if it points at a non-Salesforce URL; salesforce: the connected org; web: any site/app */
+  target?: "auto" | "salesforce" | "web";
+  /** Starting URL for web tests, e.g. http://localhost:8080 */
+  baseUrl?: string;
   cases: TestCase[];
 }
 

@@ -9,7 +9,7 @@ export function loadSuite(file: string, opts: { allowEmpty?: boolean } = {}): Te
   const parsed = file.endsWith(".json") ? JSON.parse(raw) : YAML.parse(raw);
   const suite: TestSuite = Array.isArray(parsed)
     ? { name: path.basename(file), cases: parsed }
-    : { name: parsed.name ?? path.basename(file), context: parsed.context, cases: parsed.cases ?? [] };
+    : { name: parsed.name ?? path.basename(file), context: parsed.context, target: parsed.target, baseUrl: parsed.baseUrl, cases: parsed.cases ?? [] };
 
   if (!suite.cases.length && !opts.allowEmpty) throw new Error(`${file}: no test cases found (expected a "cases" list)`);
   suite.cases.forEach((c, i) => validateCase(c, `${file} case #${i + 1}`));
@@ -35,6 +35,8 @@ export function saveSuite(file: string, suite: TestSuite) {
   const clean = {
     name: suite.name,
     ...(suite.context ? { context: suite.context } : {}),
+    ...(suite.target && suite.target !== "auto" ? { target: suite.target } : {}),
+    ...(suite.baseUrl ? { baseUrl: suite.baseUrl } : {}),
     cases: suite.cases.map((c) => Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)))),
   };
   fs.mkdirSync(path.dirname(file), { recursive: true });

@@ -3,6 +3,7 @@ import * as path from "path";
 import type { CanUseTool, McpServerConfig, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk" with { "resolution-mode": "import" };
 import { AgentVerdict, CaseResult, TestCase, TestSuite } from "./types";
 import { AuthSession } from "./auth";
+import { Target } from "./target";
 
 export interface AgentContext {
   suite: TestSuite;
@@ -29,6 +30,10 @@ export interface AgentContext {
   replayFailure?: { specFile: string; output: string };
   /** Org metadata relevant to this case (from the sf CLI) */
   orgContext?: string;
+  /** What this case runs against (see resolveTarget) */
+  target?: Target;
+  /** Starting URL for web cases */
+  baseUrl?: string;
 }
 
 export const SPEC_DIR = "tests/sf-ai";
@@ -72,7 +77,26 @@ const VERDICT_SCHEMA = {
   },
 };
 
-const SYSTEM_APPEND = `
+/** Role + target-specific guidance; shared rules follow. */
+function systemAppend(target: Target): string {
+  return (target === "web" ? WEB_INTRO : SALESFORCE_INTRO) + SHARED_RULES;
+}
+
+const WEB_INTRO = `
+You are a senior QA engineer testing a web application (NOT Salesforce) through a real browser using the
+Playwright MCP tools (mcp__playwright__*). Do NOT open Salesforce or any org - go only where the test steps say.
+Start at the URL in the first step (or the base URL given in the test case) and follow the steps from there.
+
+Web UI guidance:
+- After navigation or any action that changes the page, take a fresh browser_snapshot before acting again.
+- Chat widgets / agents (e.g. Agentforce, Embedded Messaging, any AI assistant) stream their replies and can be
+  longer than the visible panel. Wait until the reply has finished (the text stops changing between two snapshots a
+  few seconds apart), scroll inside the chat panel, and read the COMPLETE reply text from the snapshot before
+  judging it. Content may be inside an iframe - the snapshot includes it. Use fullPage screenshots for evidence.
+- Do not log in, sign up or submit real data unless a step tells you to.
+`;
+
+const SALESFORCE_INTRO = `
 You are a senior Salesforce QA engineer. You test Salesforce Lightning Experience orgs through a real browser
 using the Playwright MCP tools (mcp__playwright__*). The browser is ALREADY LOGGED IN to the org - never try to
 log in, log out, change passwords or view credentials.
@@ -88,8 +112,12 @@ Salesforce UI guidance:
   apart), scroll inside the chat panel, and read the COMPLETE reply text from the snapshot before judging it.
   Content may be inside an iframe - the snapshot includes it. Use fullPage screenshots for evidence.
 - Lookups need typing then picking an option from the dropdown; picklists are comboboxes.
+`;
 
+const SHARED_RULES = `
 Rules:
+- Follow the test steps LITERALLY and IN ORDER. Do not add steps, skip steps, or navigate anywhere a step does not
+  say. If a step is impossible as written, mark it "blocked" and explain - do not improvise a different route.
 - Only create/modify data the test case asks for. Prefix any records you create with "AI-TEST" when the test
   lets you choose a name.
 - Judge every expected result strictly against what you actually observed. If a step cannot be performed
@@ -101,7 +129,9 @@ Rules:
 
 function caseBrief(tc: TestCase, ctx: AgentContext): string {
   const lines = [
-    `Org instance URL: ${ctx.auth.instanceUrl}`,
+    ctx.target === "web"
+      ? `Target: web application (not Salesforce).${ctx.baseUrl ? ` Base URL: ${ctx.baseUrl}` : " Start from the URL in the steps."}`
+      : `Salesforce org instance URL: ${ctx.auth.instanceUrl}`,
     ctx.suite.context ? `Suite context: ${ctx.suite.context}` : "",
     `Test case ${tc.id}: ${tc.title}`,
     tc.description ? `Description: ${tc.description}` : "",
@@ -191,8 +221,11 @@ Process:
 2. Write the spec with the Write tool. Requirements:
    - import { test, expect } from '@playwright/test';
    - One test() titled "${tc.id}: ${tc.title.replace(/'/g, "")}", using test.step() for each numbered step.
-   - Navigate with relative URLs (baseURL is the org instance). The session is provided by the config's
-     storageState - never add login code and never hardcode credentials or the instance URL.
+   ${ctx.target === "web"
+     ? `- Navigate with the absolute URLs from the steps${ctx.baseUrl ? ` (base URL ${ctx.baseUrl})` : ""}. This is not a Salesforce
+     test: do not add any Salesforce login or org navigation.`
+     : `- Navigate with relative URLs (baseURL is the org instance). The session is provided by the config's
+     storageState - never add login code and never hardcode credentials or the instance URL.`}
    - Assert every expected result with web-first assertions (expect(locator).toBeVisible()/toHaveText()...).
    - Make created record names unique, e.g. \`AI-TEST ${tc.id} \${Date.now()}\`.
 3. Run it: npx playwright test --config ${PW_CONFIG} ${spec}
@@ -312,7 +345,7 @@ export async function runCaseWithAgent(
     canUseTool,
     permissionMode: "default",
     settingSources: [],
-    systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_APPEND },
+    systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(ctx.target ?? "salesforce") },
     outputFormat: { type: "json_schema", schema: VERDICT_SCHEMA },
     // Escalation: pick up the previous model conversation instead of starting a new session.
     ...(ctx.resume ? { resume: ctx.resume.sessionId } : {}),
