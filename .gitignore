@@ -9,3 +9,9 @@ dist
 /playwright.sf-ai.config.ts
 *.tmp.js
 *.tmp.ts
+
+# Local Salesforce CLI org config and code-index output (never commit)
+.sf/
+.sfdx/
+.siid-code/
+!releases/*.vsix

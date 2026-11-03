@@ -6,7 +6,7 @@
  *   SF_ALIAS                                      (sf CLI auth), or
  *   SF_INTERACTIVE=1 [+ SF_LOGIN_URL, SF_USERNAME] (you log in yourself: passkey / SSO / MFA)
  *
- *   sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--login auto|headed|headless] [--models haiku-id,sonnet-id] [--max-turns N] [--fresh] [--api-key]
+ *   sf-ai-tester run <suite.yaml> [--mode manual|automation|both] [--headed] [--login auto|headed|headless] [--models haiku-id,sonnet-id] [--max-turns N] [--workers 1-4] [--fresh] [--api-key]
  *   sf-ai-tester auth [--login auto|headed|headless]    # saves a session so generated specs can run with plain `npx playwright test`
  *   sf-ai-tester export [--out <path-without-extension>] [--format xlsx,pdf] [--no-screenshots]   # summary of all suites in test-cases/
  */
@@ -91,6 +91,7 @@ async function main() {
       maxTurns: Number(arg("max-turns") ?? 80),
       useSubscription: !flag("api-key"),
       continuity: flag("fresh") ? "fresh" : "continue",
+      workers: Number(arg("workers") ?? 2),
     },
     (e) => (e.type === "log" || e.type === "needsUser") && console.log(e.message),
     abort,

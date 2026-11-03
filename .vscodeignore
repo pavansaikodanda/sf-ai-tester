@@ -4,3 +4,9 @@ tsconfig.json
 .vscode/**
 **/*.map
 .sf-ai-tester/**
+releases/**
+*.vsix
+.sf/**
+.siid-code/**
+test-cases/**
+tests/**

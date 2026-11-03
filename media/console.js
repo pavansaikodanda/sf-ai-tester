@@ -31,6 +31,8 @@
   const modelShort = (m) => {
     if (!m || m === "default") return "DEFAULT";
     if (m === "replay") return "REPLAY · NO AI";
+    const known = (S?.models || []).find((x) => x.id === m || x.resolved === m);
+    if (known) return known.name.toUpperCase();
     const x = /claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(m);
     return x ? `${x[1].toUpperCase()} ${x[2]}${x[3] && x[3].length < 3 ? "." + x[3] : ""}` : m.toUpperCase();
   };
@@ -45,11 +47,6 @@
   const dur = (ms) => (ms ? (ms < 60000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s`) : "");
   const ICON = { idle: "◇", queued: "◌", running: "◈", escalated: "⇪", passed: "✔", failed: "✖", blocked: "⧗", error: "⚠" };
   const LABEL = { idle: "STANDBY", queued: "QUEUED", running: "RUNNING", escalated: "ESCALATED", passed: "PASSED", failed: "FAILED", blocked: "BLOCKED", error: "ERROR" };
-  const MODELS = [
-    ["claude-haiku-4-5", "Haiku 4.5 — fast, follows instructions"],
-    ["claude-sonnet-5-5", "Sonnet 5.5 — stronger reasoning"],
-    ["claude-opus-5", "Opus 5 — most thorough"],
-  ];
 
   // ---------- toasts ----------
   const toasts = document.createElement("div");
@@ -307,15 +304,21 @@
 
   function paramsPanel() {
     const st = S.settings;
+    // Models come from the signed-in Claude account (S.models); the saved choice stays selectable even if unlisted.
     const opts = (cur) => {
-      const list = MODELS.some(([id]) => id === cur) ? MODELS : [[cur, cur], ...MODELS];
+      const list = S.models.map((m) => [m.id, `${m.name}${m.resolved ? ` (latest · ${m.resolved})` : ""} — ${m.description}`]);
+      if (cur && !list.some(([id]) => id === cur)) list.unshift([cur, `${modelShort(cur)} (saved)`]);
       return list.map(([id, l]) => `<option value="${esc(id)}" ${id === cur ? "selected" : ""}>${esc(l)}</option>`).join("");
     };
+    const modelNote = S.modelsLoading
+      ? "Loading the models your Claude account can use…"
+      : S.models.length ? `${S.models.length} models from your Claude account.` : "Model list unavailable - showing saved choices.";
     const seg = (v, l) => `<button class="${st.loginMode === v ? "on" : ""}" data-act="set:loginMode" data-v="${v}">${l}</button>`;
     return `<div class="panel">
       <div class="ptitle"><span class="idx">02</span>MISSION PARAMETERS<span class="grow"></span></div>
       <label class="f"><span>Primary model</span><select data-set="primaryModel">${opts(st.primaryModel)}</select></label>
       <label class="f"><span>Fallback model (auto-escalation)</span><select data-set="fallbackModel">${opts(st.fallbackModel)}</select></label>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 8px">${esc(modelNote)} <button class="ghost sm" data-act="models:refresh" ${S.modelsLoading ? "disabled" : ""} title="Ask Claude Code which models are available now">REFRESH</button></div>
       <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">Every case runs on the primary model first. Anything that doesn't pass is re-run on the fallback to retry flaky runs and confirm real defects.</div>
       <label class="f"><span>Login window</span></label>
       <div class="seg">${seg("headed", "VISIBLE")}${seg("auto", "AUTO")}${seg("headless", "HIDDEN")}</div>
@@ -337,6 +340,14 @@
       <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">${st.replaySpecs
         ? "A case with a passing spec re-runs as plain Playwright in seconds - AI only steps in to heal the spec or confirm a defect."
         : "Every automation run asks the AI to rebuild and check the spec."}</div>
+      <label class="f"><span>Manual re-runs</span></label>
+      <div class="seg">
+        <button class="${st.replayManual ? "on" : ""}" data-act="set:bool" data-k="replayManual" data-v="1">REPLAY STEPS</button>
+        <button class="${!st.replayManual ? "on" : ""}" data-act="set:bool" data-k="replayManual" data-v="0">AI EVERY TIME</button>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 12px">${st.replayManual
+        ? "A case that passed replays its recorded clicks at Playwright speed; the AI only checks the expected results, and runs it in full if anything is off."
+        : "Every manual run has the AI drive each step."}</div>
       <label class="f"><span>AI assists</span></label>
       <div class="seg">
         <button class="${st.orgAware ? "on" : ""}" data-act="set:bool" data-k="orgAware" data-v="${st.orgAware ? 0 : 1}" title="Read required fields, picklists and validation rules from the org via the sf CLI">ORG-AWARE ${st.orgAware ? "ON" : "OFF"}</button>
@@ -759,6 +770,7 @@
         if (!ui.orgDraft.name.trim()) ui.orgDraft.name = el.dataset.a || el.dataset.u;
         return render();
       case "project:recheck": return post("project:recheck");
+      case "models:refresh": return post("models:refresh");
       case "set:headless": return post("settings:update", { key: "headless", value: !S.settings.headless });
       case "set:loginMode": return post("settings:update", { key: "loginMode", value: el.dataset.v });
       case "set:continuity": return post("settings:update", { key: "continuity", value: el.dataset.v });

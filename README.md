@@ -29,18 +29,49 @@ YAML test cases ─► Runner ─► Login once (Playwright, in code) ─► sto
   denied (see `canUseTool` in `src/core/agent.ts`).
 * Session cookies and run output go to `.sf-ai-tester/`, which is git-ignored automatically.
 
-## Setup
+## Install in VS Code
 
-Prerequisites: Node 20+, and Claude Code logged in with your subscription (`claude` → `/login`).
+### Prerequisites
+- **VS Code 1.90+**
+- **Node.js 20+** (`node -v`), used to run Playwright
+- **Claude Code**, logged in with your Pro/Max subscription: `npm i -g @anthropic-ai/claude-code`, then run
+  `claude` and `/login`
+- Optional: the **Salesforce CLI** (`sf`) if you want to use `sf` org aliases or Salesforce DX project orgs
 
+### Option A: install the ready-made VSIX (Windows x64)
+1. Download [`releases/sf-ai-tester-0.9.0.vsix`](releases/sf-ai-tester-0.9.0.vsix) from this repo (open the file on
+   GitHub and click **Download**). It is about 127 MB and stored with Git LFS, so if you clone the repo, run
+   `git lfs install` before `git clone`, or `git lfs pull` afterwards, to get the real file instead of a small pointer file.
+2. Install it with either:
+   - VS Code: **Extensions** view → **`...`** menu → **Install from VSIX...** → pick the file, or
+   - Terminal: `code --install-extension sf-ai-tester-0.9.0.vsix`
+3. Reload VS Code, then open the folder where your test cases should live (any folder, or a Salesforce DX project).
+4. Install the test browsers once:
+   ```bash
+   npx playwright install chromium
+   npx @playwright/mcp install-browser chrome-for-testing
+   ```
+   For **automation** mode the workspace also needs `@playwright/test`. Click **Install Playwright** in Mission
+   Control when it asks, or run `npm i -D @playwright/test` in the workspace.
+5. Click the **SF AI Tester** icon in the activity bar to open Mission Control.
+
+The prebuilt VSIX contains the Windows x64 build of the Claude Agent SDK. On macOS or Linux, build it from source
+(Option B) so the right native package is included.
+
+To update, install the newer `.vsix` the same way. Your test cases and settings are kept.
+
+### Option B: build from source (any OS)
 ```bash
+git clone https://github.com/pavansaikodanda/sf-ai-tester.git
+cd sf-ai-tester
 npm install
 npm run setup      # installs the browsers for Playwright and Playwright MCP
 npm run build
+npm run package    # creates sf-ai-tester-<version>.vsix
+code --install-extension sf-ai-tester-0.9.0.vsix
 ```
 
-Open this folder in VS Code and press **F5** to launch a development window with the extension loaded.
-(`npm run package` builds a `.vsix` you can install permanently.)
+For development, open this folder in VS Code and press **F5** to launch a window with the extension loaded.
 
 ### Mission Control
 
@@ -98,6 +129,7 @@ Where the AI is used - and where it is not (all in **Mission Parameters**):
 | Feature | What it does |
 |---|---|
 | **Replay passing specs** (`sfAiTester.replaySpecs`, on) | An automation case that already has a passing generated spec re-runs it with plain Playwright - seconds, no AI. Only if the spec fails does the AI step in, to **self-heal** the script (locator/timing changes) or confirm a real defect. |
+| **Replay manual steps** (`sfAiTester.replayManual`, on) | When a manual case passes, its browser actions are recorded. The next run of the unchanged case replays them at Playwright speed and the AI only checks the expected results; if the replay breaks or a result is off, the AI runs the case in full (and re-records it when it passes). |
 | **Parallel workers** (`sfAiTester.workers`, 2) | Runs up to 4 case chains at once, each with its own browser and agent. Cases that share opening steps stay on one worker so carry-over still works. |
 | **Org-aware AI** (`sfAiTester.orgAware`, on) | Reads the objects a case or requirement mentions through the sf CLI - required fields, real picklist values, active validation rules - and gives them to the agent and to *Generate with AI* (which then adds a negative test per validation rule). Cached 24h; never blocks a run (60s budget). |
 | **AI run analyst** (`sfAiTester.analyzeRuns`, on) | After a run with failures, one AI pass groups them by root cause (app defect / environment / test design / flaky / tooling) with a next step for each. Shown at the top of the Test Matrix and in exported reports. |

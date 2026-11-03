@@ -2,11 +2,13 @@ import * as fs from "fs";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
-import { chromium, BrowserContext } from "playwright";
+import { chromium, BrowserContext, Page } from "playwright";
 
 export interface BrowserHost {
   /** Chrome DevTools Protocol endpoint each model's Playwright MCP attaches to */
   cdpEndpoint: string;
+  /** The tab the agents work in (the first open one), for replaying recorded actions in-process */
+  page(): Promise<Page>;
   close(): Promise<void>;
 }
 
@@ -47,6 +49,7 @@ export async function startBrowserHost(opts: { storageStatePath: string; headles
   if (!context.pages().length) await context.newPage();
   return {
     cdpEndpoint: `http://127.0.0.1:${port}`,
+    page: async () => context.pages()[0] ?? (await context.newPage()),
     close: async () => {
       await context.close().catch(() => undefined);
       fs.rmSync(profile, { recursive: true, force: true });

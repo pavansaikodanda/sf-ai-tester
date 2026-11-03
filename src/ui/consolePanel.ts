@@ -14,9 +14,11 @@ import { collectReport, writeExcel, writePdf } from "../core/export";
 import { LoginOptions, OrgConfig, TestCase, TestMode, TestSuite } from "../core/types";
 import { SAMPLE_SUITE } from "../sample";
 import { listOrgs } from "../core/sfcli";
+import { ModelOption, listModels } from "../core/models";
 import { ACTIVE_ORG_KEY, ORGS_KEY, ProjectOrgSync } from "./projectOrg";
 
 const SUITE_KEY = "sfAiTester.suiteFile";
+const MODELS_KEY = "sfAiTester.models";
 const secretKey = (org: string) => `sfAiTester.password.${org}`;
 
 type Busy = "run" | "gen" | "login" | null;
@@ -59,6 +61,7 @@ export class ConsolePanel {
     private output: vscode.OutputChannel,
     private projectOrg: ProjectOrgSync,
   ) {
+    this.modelList = ctx.globalState.get(MODELS_KEY);
     panel.webview.html = this.html();
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.webview.onDidReceiveMessage((m: Msg) => this.handle(m).catch((e) => this.toast("error", (e as Error).message)), null, this.disposables);
@@ -70,6 +73,29 @@ export class ConsolePanel {
       this.pushState();
     }, null, this.disposables);
     void projectOrg.sync();
+    void this.refreshModels(false);
+  }
+
+  /** Models offered in the pickers: cached for a day, refreshed in the background from the Claude account. */
+  private modelList: { at: number; list: ModelOption[] } | undefined;
+  private modelsLoading = false;
+  private async refreshModels(force: boolean) {
+    if (this.modelsLoading || (!force && this.modelList && Date.now() - this.modelList.at < 24 * 3600_000)) return;
+    this.modelsLoading = true;
+    this.pushState();
+    try {
+      const list = await listModels({ useSubscription: this.cfg().get("useSubscription", true), cwd: this.workspace() });
+      if (list.length) {
+        this.modelList = { at: Date.now(), list };
+        await this.ctx.globalState.update(MODELS_KEY, this.modelList);
+      }
+    } catch (e) {
+      this.log(`Could not list Claude models: ${(e as Error).message}`);
+      if (force) this.toast("warn", `Could not list Claude models: ${(e as Error).message}`);
+    } finally {
+      this.modelsLoading = false;
+      this.pushState();
+    }
   }
 
   private watcher: vscode.FileSystemWatcher | undefined;
@@ -202,6 +228,8 @@ export class ConsolePanel {
       targets: suite ? Object.fromEntries(suite.cases.map((c) => [c.id, resolveTarget(c, suite!)])) : {},
       live: Object.fromEntries(this.live),
       busy: this.busy,
+      models: this.modelList?.list ?? [],
+      modelsLoading: this.modelsLoading,
       settings: {
         headless: cfg.get("headless", false),
         loginMode: cfg.get("login.browserMode", "headed"),
@@ -212,6 +240,7 @@ export class ConsolePanel {
         continuity: cfg.get("continuity", "continue"),
         workers: cfg.get("workers", 2),
         replaySpecs: cfg.get("replaySpecs", true),
+        replayManual: cfg.get("replayManual", true),
         orgAware: cfg.get("orgAware", true),
         analyzeRuns: cfg.get("analyzeRuns", true),
       },
@@ -274,6 +303,8 @@ export class ConsolePanel {
           this.post({ type: "sf:orgs", orgs: [], error: "Could not run the sf CLI - is it installed? (npm i -g @salesforce/cli)" });
         }
         return;
+      case "models:refresh":
+        return this.refreshModels(true);
       case "project:recheck":
         return this.projectOrg.sync();
       case "org:login":
@@ -419,6 +450,7 @@ export class ConsolePanel {
           continuity: "continuity",
           workers: "workers",
           replaySpecs: "replaySpecs",
+          replayManual: "replayManual",
           orgAware: "orgAware",
           analyzeRuns: "analyzeRuns",
         };
@@ -665,6 +697,7 @@ export class ConsolePanel {
         {
           workers: this.cfg().get("workers", 2),
           replay,
+          replayManual: this.cfg().get("replayManual", true),
           orgContext: (tc) => orgContexts[tc.id],
           analyze: this.cfg().get("analyzeRuns", true),
           mode,

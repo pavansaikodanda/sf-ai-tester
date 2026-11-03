@@ -99,6 +99,10 @@ export interface CaseResult extends AgentVerdict {
   trail?: string[];
   /** Models tried, in order, with their verdicts */
   attempts?: { model: string; status: Status; summary: string; trail?: string[] }[];
+  /** Playwright code of the browser actions this session ran (internal: turned into a recording, not reported) */
+  recorded?: string[];
+  /** The agent's own last run of specFile passed and the spec was not changed afterwards (internal) */
+  specGreen?: boolean;
 }
 
 export interface RunOptions {
@@ -123,6 +127,8 @@ export interface RunOptions {
   analyze?: boolean;
   /** Org metadata (fields, required fields, picklists, validation rules) relevant to this case, for the agent */
   orgContext?: (tc: TestCase) => string | undefined;
+  /** Manual re-runs replay the recorded browser actions of the last pass, then the AI only checks the results (default true) */
+  replayManual?: boolean;
 }
 
 export type RunEvent =
