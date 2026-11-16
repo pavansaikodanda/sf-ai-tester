@@ -149,7 +149,7 @@
         "sfAiTester.fallbackModel": {
           "type": "string",
           "default": "claude-sonnet-5-5",
-          "description": "Model that re-runs any case the primary model did not pass (agent errors, unstable scripts, reported failures)."
+          "description": "Model that takes over a case the primary model ended in an agent error or as blocked (and failed cases too when sfAiTester.confirmFailures is on)."
         },
         "sfAiTester.dataFolder": {
           "type": "string",

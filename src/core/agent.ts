@@ -175,7 +175,8 @@ picklist values and validation-rule messages below when acting and when checking
       : "",
     ctx.recordLinks
       ? `Records named in the steps (looked up in the org when this run started). When a step says to search for, find or
-open one of them, navigate straight to its URL - that IS following the step; do not search list views or global search:
+open one of them, navigate straight to its URL - that IS following the step; do not search list views or global search.
+If this case deleted, recreated or renamed that record before that step, find it on the page instead:
 ${ctx.recordLinks}`
       : "",
     `Save every screenshot with an absolute filename inside ${ctx.evidenceDir.replace(/\\/g, "/")}/ ` +

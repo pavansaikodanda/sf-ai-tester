@@ -1,8 +1,12 @@
 import { OrgMeta } from "./orgmeta";
 import { sf } from "./sfcli";
 
-/** A quoted name in a step ("Search the list for "Acme" and open that Account"). */
-const QUOTED = /"([^"]{3,120})"/g;
+/**
+ * A quoted name in a step: "Acme" or 'Acme' (Search the list for "Acme" and open that Account). Single quotes must
+ * stand on their own, so the apostrophe in "the account's list" never opens a name.
+ */
+const QUOTED = /"([^"]{3,120})"|(?<![\w'])'([^']{3,120})'(?![\w'])/g;
+const quotedNames = (s: string) => [...s.matchAll(QUOTED)].map((m) => (m[1] ?? m[2]).trim());
 /** Steps that go to an existing record. */
 const OPENS = /\b(open|find|search|go to|navigate)\b/i;
 /** Values the Windows shell wrapper in sf() cannot pass safely. */
@@ -24,6 +28,9 @@ export async function recordLinks(
   log: (m: string) => void,
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
+  // The login can fail after the budget has returned and before this is awaited: observe it so that is never an
+  // unhandled rejection (a later await still sees the error).
+  if (typeof instanceUrl !== "string") instanceUrl.catch(() => undefined);
   const perCase = new Map<string, { object: string; name: string }[]>();
   const found = new Map<string, { id: string; count: number }>();
   // The budget covers the org queries only; waiting for the instance URL (the login) happens after it.
@@ -31,9 +38,15 @@ export async function recordLinks(
     const byObject = new Map<string, Set<string>>();
     for (const c of cases) {
       const refs: { object: string; name: string }[] = [];
+      // Names an earlier step already used (entered, created, renamed...) may belong to a record this case makes or
+      // replaces itself - a link looked up before the run would point at the wrong (or a deleted) record.
+      const earlier = new Set<string>();
       for (const step of c.steps) {
+        const inStep = quotedNames(step);
+        const fresh = inStep.filter((n) => !earlier.has(n.toLowerCase()));
+        inStep.forEach((n) => earlier.add(n.toLowerCase()));
         if (!OPENS.test(step)) continue;
-        const names = [...step.matchAll(QUOTED)].map((m) => m[1].trim()).filter((n) => !UNSAFE.test(n));
+        const names = fresh.filter((n) => !UNSAFE.test(n));
         if (!names.length) continue;
         // Detect the object from the step without its quoted names ("AI-TEST GST Flagged Quote" is an Account, not a Quote).
         const objects = await meta.detectObjects(step.replace(QUOTED, " "), 2);

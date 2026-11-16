@@ -158,9 +158,11 @@ Switch themes with **NEON / FLIGHT / STOIC** in the console header (or the `sfAi
 | **Stoic** | Minimal: parchment, ink and bronze, Cormorant Garamond and IBM Plex, a daily Stoic quote, no glow or motion |
 
 ### Model escalation
-Every case runs on **Haiku 4.5** first. If a run doesn't pass (agent error, unstable script or a reported
-failure), it's automatically re-run on **Sonnet 5.5**. Flaky runs get a retry, and a defect is only reported once
-the stronger model confirms it. The escalation is a handover, not a restart: the fallback model resumes the same agent session (it sees every step the first model took and what it observed) and continues in the same browser, on the page the first model stopped on, re-verifying anything that did not pass. The pod shows which model produced the verdict. Change the models in Mission
+Every case runs on **Haiku 4.5** first. If the run ends in an agent error or is **blocked** (often the weaker model
+getting lost), it's automatically handed to **Sonnet 5.5**. A **failed** verdict (the app did not do what the case
+expects) is reported as it is, without a second model, because re-checking it costs a whole second run and almost
+always confirms it. Turn on `sfAiTester.confirmFailures` (CLI: `--confirm-failures`) to have the stronger model confirm
+every defect as well. The escalation is a handover, not a restart: the fallback model resumes the same agent session (it sees every step the first model took and what it observed) and continues in the same browser, on the page the first model stopped on, re-verifying anything that did not pass. The pod shows which model produced the verdict. Change the models in Mission
 Parameters (`sfAiTester.primaryModel` / `sfAiTester.fallbackModel`).
 
 ### Settings
