@@ -91,6 +91,8 @@ export async function runSuite(
   const targets = new Map(suite.cases.map((tc) => [tc.id, resolveTarget(tc, suite)] as const));
   const sfCount = [...targets.values()].filter((t) => t === "salesforce").length;
   if (sfCount < suite.cases.length) log(`${suite.cases.length - sfCount} web case(s) (no Salesforce)${sfCount ? `, ${sfCount} Salesforce case(s)` : " - skipping the org login"}.`);
+  const stage = (text: string) => emit({ type: "stage", text });
+  if (sfCount) stage(`Logging in to ${org.name}...`);
   const authP: Promise<AuthSession> = sfCount
     ? authenticate(org, path.join(toolDir, "auth"), opts.login, {
         log,
@@ -112,7 +114,9 @@ export async function runSuite(
     }
   }
   const auth = await authP;
+  if (sfCount) stage(`Logged in to ${org.name}. Looking up the records the steps name...`);
   const links = await linksP;
+  stage("Starting the browser and the AI agent...");
 
   const runDir = path.join(toolDir, "runs", new Date().toISOString().replace(/[:.]/g, "-"));
   fs.mkdirSync(runDir, { recursive: true });

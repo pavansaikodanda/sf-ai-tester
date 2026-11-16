@@ -138,6 +138,8 @@ export interface RunOptions {
 export type RunEvent =
   | { type: "log"; message: string }
   | { type: "needsUser"; message: string }
+  /** What the run is doing before (and between) cases: login, org lookups, starting the browser and agent */
+  | { type: "stage"; text: string }
   | { type: "caseStart"; id: string; title: string; mode: "manual" | "automation"; model: string }
   | { type: "escalate"; id: string; mode: "manual" | "automation"; from: string; to: string; reason: string }
   | { type: "caseEnd"; result: CaseResult; runDir: string }

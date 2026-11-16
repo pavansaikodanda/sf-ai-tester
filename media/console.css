@@ -297,6 +297,11 @@ button.sm { padding: 4px 8px; font-size: 10px; }
 .alert .radar { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--amber); position: relative; flex: none; overflow: hidden; }
 .alert .radar:after { content: ""; position: absolute; inset: 0; background: conic-gradient(color-mix(in srgb, var(--amber) 80%, transparent), transparent 30%); animation: spin 1.2s linear infinite; }
 @keyframes alertpulse { 50% { box-shadow: 0 0 26px color-mix(in srgb, var(--amber) 35%, transparent); } }
+/* Run preparation (login, org lookups, starting the browser/agent): informative, not a call to action. */
+.alert.stage { border-color: var(--cyan); background: linear-gradient(90deg, color-mix(in srgb, var(--cyan) 14%, transparent), color-mix(in srgb, var(--cyan) 3%, transparent)); animation: none; }
+.alert.stage .big { color: var(--cyan); }
+.alert.stage .radar { border-color: var(--cyan); }
+.alert.stage .radar:after { background: conic-gradient(color-mix(in srgb, var(--cyan) 80%, transparent), transparent 30%); }
 .info-banner { padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: color-mix(in srgb, var(--cyan) 6%, transparent); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
 .modal-back { position: fixed; inset: 0; z-index: 50; background: color-mix(in srgb, var(--deep) 70%, transparent); backdrop-filter: blur(4px); display: grid; place-items: center; padding: 16px; animation: fade 0.2s both; }
