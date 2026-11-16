@@ -39,12 +39,12 @@ YAML test cases ─► Runner ─► Login once (Playwright, in code) ─► sto
 - Optional: the **Salesforce CLI** (`sf`) if you want to use `sf` org aliases or Salesforce DX project orgs
 
 ### Option A: install the ready-made VSIX (Windows x64)
-1. Download [`releases/sf-ai-tester-0.9.0.vsix`](releases/sf-ai-tester-0.9.0.vsix) from this repo (open the file on
+1. Download [`releases/sf-ai-tester-0.9.1.vsix`](releases/sf-ai-tester-0.9.1.vsix) from this repo (open the file on
    GitHub and click **Download**). It is about 127 MB and stored with Git LFS, so if you clone the repo, run
    `git lfs install` before `git clone`, or `git lfs pull` afterwards, to get the real file instead of a small pointer file.
 2. Install it with either:
    - VS Code: **Extensions** view → **`...`** menu → **Install from VSIX...** → pick the file, or
-   - Terminal: `code --install-extension sf-ai-tester-0.9.0.vsix`
+   - Terminal: `code --install-extension sf-ai-tester-0.9.1.vsix`
 3. Reload VS Code, then open the folder where your test cases should live (any folder, or a Salesforce DX project).
 4. Install the test browsers once:
    ```bash
@@ -68,7 +68,7 @@ npm install
 npm run setup      # installs the browsers for Playwright and Playwright MCP
 npm run build
 npm run package    # creates sf-ai-tester-<version>.vsix
-code --install-extension sf-ai-tester-0.9.0.vsix
+code --install-extension sf-ai-tester-0.9.1.vsix
 ```
 
 For development, open this folder in VS Code and press **F5** to launch a window with the extension loaded.
@@ -158,9 +158,11 @@ Switch themes with **NEON / FLIGHT / STOIC** in the console header (or the `sfAi
 | **Stoic** | Minimal: parchment, ink and bronze, Cormorant Garamond and IBM Plex, a daily Stoic quote, no glow or motion |
 
 ### Model escalation
-Every case runs on **Haiku 4.5** first. If a run doesn't pass (agent error, unstable script or a reported
-failure), it's automatically re-run on **Sonnet 5.5**. Flaky runs get a retry, and a defect is only reported once
-the stronger model confirms it. The escalation is a handover, not a restart: the fallback model resumes the same agent session (it sees every step the first model took and what it observed) and continues in the same browser, on the page the first model stopped on, re-verifying anything that did not pass. The pod shows which model produced the verdict. Change the models in Mission
+Every case runs on **Haiku 4.5** first. If the run ends in an agent error or is **blocked** (often the weaker model
+getting lost), it's automatically handed to **Sonnet 5.5**. A **failed** verdict (the app did not do what the case
+expects) is reported as it is, without a second model, because re-checking it costs a whole second run and almost
+always confirms it. Turn on `sfAiTester.confirmFailures` (CLI: `--confirm-failures`) to have the stronger model confirm
+every defect as well. The escalation is a handover, not a restart: the fallback model resumes the same agent session (it sees every step the first model took and what it observed) and continues in the same browser, on the page the first model stopped on, re-verifying anything that did not pass. The pod shows which model produced the verdict. Change the models in Mission
 Parameters (`sfAiTester.primaryModel` / `sfAiTester.fallbackModel`).
 
 ### Settings

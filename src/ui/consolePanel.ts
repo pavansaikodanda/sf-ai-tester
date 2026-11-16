@@ -698,6 +698,8 @@ export class ConsolePanel {
           workers: this.cfg().get("workers", 2),
           replay,
           replayManual: this.cfg().get("replayManual", true),
+          confirmFailures: this.cfg().get("confirmFailures", false),
+          resolveRecords: this.cfg().get("resolveRecords", true),
           orgContext: (tc) => orgContexts[tc.id],
           analyze: this.cfg().get("analyzeRuns", true),
           mode,
