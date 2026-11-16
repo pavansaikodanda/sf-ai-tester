@@ -111,9 +111,13 @@ export interface RunOptions {
   workspaceDir: string;
   headless: boolean;
   login: LoginOptions;
-  /** Models to try in order: the first one runs every case; later ones re-run a case that did not pass
-   *  (agent error, script instability or a reported failure) so defects are confirmed by a stronger model. */
+  /** Models to try in order: the first one runs every case; later ones take over a case that ended in an agent
+   *  error or "blocked" (and "failed" too with confirmFailures). */
   models: string[];
+  /** Also hand "failed" verdicts to the next model to confirm the defect (slower; default false) */
+  confirmFailures?: boolean;
+  /** Resolve the records the steps name to direct URLs through the sf CLI before the run (default true) */
+  resolveRecords?: boolean;
   maxTurns: number;
   /** Strip ANTHROPIC_API_KEY so the Claude Code subscription login is used */
   useSubscription: boolean;

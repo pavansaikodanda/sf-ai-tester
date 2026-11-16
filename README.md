@@ -39,12 +39,12 @@ YAML test cases ─► Runner ─► Login once (Playwright, in code) ─► sto
 - Optional: the **Salesforce CLI** (`sf`) if you want to use `sf` org aliases or Salesforce DX project orgs
 
 ### Option A: install the ready-made VSIX (Windows x64)
-1. Download [`releases/sf-ai-tester-0.9.0.vsix`](releases/sf-ai-tester-0.9.0.vsix) from this repo (open the file on
+1. Download [`releases/sf-ai-tester-0.9.1.vsix`](releases/sf-ai-tester-0.9.1.vsix) from this repo (open the file on
    GitHub and click **Download**). It is about 127 MB and stored with Git LFS, so if you clone the repo, run
    `git lfs install` before `git clone`, or `git lfs pull` afterwards, to get the real file instead of a small pointer file.
 2. Install it with either:
    - VS Code: **Extensions** view → **`...`** menu → **Install from VSIX...** → pick the file, or
-   - Terminal: `code --install-extension sf-ai-tester-0.9.0.vsix`
+   - Terminal: `code --install-extension sf-ai-tester-0.9.1.vsix`
 3. Reload VS Code, then open the folder where your test cases should live (any folder, or a Salesforce DX project).
 4. Install the test browsers once:
    ```bash
@@ -68,7 +68,7 @@ npm install
 npm run setup      # installs the browsers for Playwright and Playwright MCP
 npm run build
 npm run package    # creates sf-ai-tester-<version>.vsix
-code --install-extension sf-ai-tester-0.9.0.vsix
+code --install-extension sf-ai-tester-0.9.1.vsix
 ```
 
 For development, open this folder in VS Code and press **F5** to launch a window with the extension loaded.

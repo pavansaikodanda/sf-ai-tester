@@ -30,6 +30,8 @@ export interface AgentContext {
   replayFailure?: { specFile: string; output: string };
   /** Org metadata relevant to this case (from the sf CLI) */
   orgContext?: string;
+  /** Direct URLs of the records this case's steps name, looked up in the org before the run (see records.ts) */
+  recordLinks?: string;
   /** What this case runs against (see resolveTarget) */
   target?: Target;
   /** Starting URL for web cases */
@@ -136,7 +138,8 @@ Speed - every tool call is a round trip, so use as few as the steps allow:
 - Prefer browser_find (search the page for text) over a full browser_snapshot when you only need one element, and
   scope snapshots with "target" (e.g. the dialog, form or chat panel) - Salesforce pages are very large.
 - Fill several fields of one form in a single browser_fill_form call.
-- Wait with browser_wait_for (text to appear/disappear) - never by repeating snapshots.
+- Wait with browser_wait_for (text to appear/disappear) - never by repeating snapshots. Its "text" is matched
+  literally: pass one exact phrase, never alternatives like "Saved|Error" (that never matches and only times out).
 - Once a snapshot or find has shown an expected result, it is verified: do not check it again another way.
 
 Rules:
@@ -169,6 +172,11 @@ function caseBrief(tc: TestCase, ctx: AgentContext): string {
     ctx.orgContext
       ? `Org metadata for the objects in this test (from the live org - use the exact labels, required fields,
 picklist values and validation-rule messages below when acting and when checking expected results):\n${ctx.orgContext}`
+      : "",
+    ctx.recordLinks
+      ? `Records named in the steps (looked up in the org when this run started). When a step says to search for, find or
+open one of them, navigate straight to its URL - that IS following the step; do not search list views or global search:
+${ctx.recordLinks}`
       : "",
     `Save every screenshot with an absolute filename inside ${ctx.evidenceDir.replace(/\\/g, "/")}/ ` +
       `(e.g. ${ctx.evidenceDir.replace(/\\/g, "/")}/${tc.id}-step1.png).`,
@@ -255,9 +263,18 @@ Process:
      storageState - never add login code and never hardcode credentials or the instance URL.`}
    - Assert every expected result with web-first assertions (expect(locator).toBeVisible()/toHaveText()...).
    - Make created record names unique, e.g. \`AI-TEST ${tc.id} \${Date.now()}\`.
+   ${ctx.target === "web" ? "" : `- NEVER use waitForLoadState('networkidle') or waitForTimeout: Lightning keeps connections open, so the network is
+     never idle and the run just hangs until it times out. After a navigation or save, wait for the element or text you
+     act on next (await expect(locator).toBeVisible()).
+   - Use the direct record URLs given above (as relative paths, e.g. /lightning/r/Account/<Id>/view) instead of
+     searching list views.`}
+   - Edit the spec with Write/Edit on "${spec}" only (Read it first if it exists). Never write it any other way.
 3. Run it ${RUN_NOTE}: npx playwright test --config ${PW_CONFIG} ${spec}
+   These runs use short timeouts so a wrong locator fails in seconds; read the error and the failing step.
 4. If it fails because of the SCRIPT (bad locator, timing), fix it and re-run. Iterate until it passes or you
-   are confident the failure is a genuine APPLICATION defect. Do not weaken assertions to make it pass.
+   are confident the failure is a genuine APPLICATION defect. Do not weaken assertions to make it pass. If the
+   app (or a permission/validation rule) blocks a step, stop after confirming it once in the MCP browser and report it
+   - re-running the spec will not change it.
 Return your verdict in the required JSON format with "specFile" set to "${spec}". "passed" means the spec passes.`;
 }
 
@@ -358,10 +375,14 @@ function agentOptions(tc: TestCase, mode: "manual" | "automation", ctx: AgentCon
     SF_INSTANCE_URL: ctx.auth.instanceUrl,
     // The agent's own `npx playwright test` runs must not share an output folder with other workers.
     SF_PW_OUTPUT_DIR: path.join(ctx.evidenceDir, "playwright"),
+    // ...and fail fast (shorter timeouts in the generated config): a broken locator surfaces in seconds, not minutes.
+    SF_PW_AUTHORING: "1",
   });
 
   const allowedTools = mode === "manual" ? ["mcp__playwright"] : ["mcp__playwright", "Read", "Glob", "Grep"];
-  const specDir = path.resolve(ctx.workspaceDir, SPEC_DIR) + path.sep;
+  // Windows paths are case-insensitive, and VS Code reports the drive as "c:" while models usually write "C:".
+  const norm = normPath;
+  const specDir = norm(path.resolve(ctx.workspaceDir, SPEC_DIR) + path.sep);
 
   // Everything not pre-approved above lands here. Automation mode may write specs under
   // tests/sf-ai and run `npx playwright test`; every other tool call is denied.
@@ -369,7 +390,7 @@ function agentOptions(tc: TestCase, mode: "manual" | "automation", ctx: AgentCon
     if (toolName === "StructuredOutput" || toolName === "ToolSearch") return { behavior: "allow", updatedInput: input };
     if (mode === "automation") {
       if (toolName === "Write" || toolName === "Edit") {
-        const file = path.resolve(ctx.workspaceDir, String(input.file_path ?? ""));
+        const file = norm(path.resolve(ctx.workspaceDir, String(input.file_path ?? "")));
         if (file.startsWith(specDir) && file.endsWith(".spec.ts")) return { behavior: "allow", updatedInput: input };
         return { behavior: "deny", message: `Only *.spec.ts files under ${SPEC_DIR}/ may be written.` };
       }
@@ -455,8 +476,13 @@ export async function runCaseWithAgent(
   if (!verdict) {
     return { ...base, status: "error", summary: failure, steps: [], defects: [], evidence: [] };
   }
-  const specGreen = !!verdict.specFile && tape.greenSpecs.has(path.resolve(ctx.workspaceDir, verdict.specFile));
+  const specGreen = !!verdict.specFile && tape.greenSpecs.has(normPath(path.resolve(ctx.workspaceDir, verdict.specFile)));
   return { ...base, ...verdict, specGreen, evidence: collectEvidence(verdict.evidence, ctx) };
+}
+
+/** Path key for comparisons: Windows paths are case-insensitive ("c:\" from VS Code vs "C:\" from the model). */
+function normPath(p: string): string {
+  return process.platform === "win32" ? p.toLowerCase() : p;
 }
 
 /** Browser tools whose code is not part of the user flow (reading the page, evidence, closing the browser). */
@@ -477,7 +503,10 @@ class Tape {
   /** The session ran free-form Playwright code: never turn it into a recording (replay runs in-process). */
   unsafe = false;
   private calls = new Map<string, { name: string; input: Record<string, unknown> }>();
-  constructor(private specDir: string) {}
+  private specDir: string;
+  constructor(specDir: string) {
+    this.specDir = normPath(specDir);
+  }
 
   observe(msg: SDKMessage, cwd: string) {
     if (msg.type === "assistant") {
@@ -486,7 +515,7 @@ class Tape {
         const input = (b.input ?? {}) as Record<string, unknown>;
         this.calls.set(b.id, { name: b.name, input });
         if (b.name.startsWith("mcp__playwright__browser_run_code")) this.unsafe = true;
-        if ((b.name === "Write" || b.name === "Edit") && input.file_path) this.greenSpecs.delete(path.resolve(cwd, String(input.file_path)));
+        if ((b.name === "Write" || b.name === "Edit") && input.file_path) this.greenSpecs.delete(normPath(path.resolve(cwd, String(input.file_path))));
       }
       return;
     }
@@ -504,7 +533,7 @@ class Tape {
         if (!/^npx playwright test\b/.test(cmd.trim())) continue;
         const green = !b.is_error && /\b\d+ passed\b/.test(text) && !/\b\d+ (failed|flaky|interrupted)\b/.test(text);
         for (const arg of cmd.split(/\s+/).filter((a) => a.endsWith(".spec.ts"))) {
-          const spec = path.resolve(cwd, arg);
+          const spec = normPath(path.resolve(cwd, arg));
           if (!spec.startsWith(this.specDir)) continue;
           if (green) this.greenSpecs.add(spec);
           else this.greenSpecs.delete(spec);
