@@ -34,6 +34,9 @@ export async function recordLinks(
   const perCase = new Map<string, { object: string; name: string }[]>();
   const found = new Map<string, { id: string; count: number }>();
   // The budget covers the org queries only; waiting for the instance URL (the login) happens after it.
+  // Past the deadline the caller has moved on, so no further sf query is started (they would only compete with the run).
+  const deadline = Date.now() + budgetMs;
+  const late = () => Date.now() >= deadline;
   const work = (async () => {
     const byObject = new Map<string, Set<string>>();
     for (const c of cases) {
@@ -50,6 +53,7 @@ export async function recordLinks(
         if (!names.length) continue;
         // Detect the object from the step without its quoted names ("AI-TEST GST Flagged Quote" is an Account, not a Quote).
         const objects = await meta.detectObjects(step.replace(QUOTED, " "), 2);
+        if (late()) return;
         for (const object of objects) {
           for (const name of names) {
             refs.push({ object, name });
@@ -64,6 +68,7 @@ export async function recordLinks(
 
     // One object at a time: concurrent sf processes contend for the CLI's shared auth files.
     for (const [object, names] of byObject) {
+      if (late()) return;
       if (!/^\w+$/.test(object)) continue;
       const list = [...names].map((n) => `'${n.replace(/'/g, "\\'")}'`).join(",");
       const res = await sf(
