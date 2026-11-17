@@ -122,7 +122,8 @@ export async function authenticate(
   if (org.authMode !== "sfcli" && org.username && /^[\w.@+-]+$/.test(org.username)) {
     cb.log(`Checking whether the sf CLI is already logged in as ${org.username}...`);
     const cli = await describeOrg(org.username).catch(() => undefined);
-    if (cli?.connected) {
+    // Only the very same account: a CLI alias spelled like a username could resolve to someone else.
+    if (cli?.connected && cli.username.toLowerCase() === org.username.toLowerCase()) {
       cb.log(`The sf CLI is logged in to "${org.name}" (${cli.alias ?? cli.username}) - using it, no password or MFA needed.`);
       org = { ...org, authMode: "sfcli", sfAlias: cli.username };
     }
