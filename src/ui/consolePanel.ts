@@ -679,6 +679,7 @@ export class ConsolePanel {
     try {
       // Org-aware AI: real field/picklist/validation-rule metadata for the objects each case mentions.
       const meta = sfCases.length ? this.orgMeta(org) : undefined;
+      if (meta) this.post({ type: "run:stage", text: `Reading ${org.name} metadata (fields, picklists, validation rules)...` });
       const orgContexts = meta
         ? await contextsForCases(meta, sfCases.map((c) => ({ id: c.id, text: caseText(c) })), 60_000, (l) => this.log(l))
         : {};
@@ -718,6 +719,9 @@ export class ConsolePanel {
               return this.log(e.message);
             case "needsUser":
               return this.needsUser(e.message);
+            case "stage":
+              this.post({ type: "needsUser", message: null }); // a new stage means the login wait (if any) is over
+              return this.post({ type: "run:stage", text: e.text });
             case "caseStart":
               this.post({ type: "needsUser", message: null });
               this.live.set(`${e.id}:${e.mode}`, { phase: "running", model: e.model });

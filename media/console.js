@@ -14,6 +14,7 @@
     orgDraft: null,
     showPw: false,
     needsUser: null,
+    stage: null, // what the run is doing before the first case starts (login, org lookups, browser/agent start)
     logs: [],
     run: null, // { total, done }
     modal: null,
@@ -121,8 +122,9 @@
   }
 
   function alertBanner() {
-    if (!ui.needsUser) return "";
-    return `<div class="alert"><div class="radar"></div><div><div class="big">AWAITING PILOT INPUT</div><div>${esc(ui.needsUser)}</div></div></div>`;
+    if (ui.needsUser) return `<div class="alert"><div class="radar"></div><div><div class="big">AWAITING PILOT INPUT</div><div>${esc(ui.needsUser)}</div></div></div>`;
+    if (ui.stage && S?.busy === "run") return `<div class="alert stage"><div class="radar"></div><div><div class="big">PREPARING RUN</div><div>${esc(ui.stage)}</div></div></div>`;
+    return "";
   }
 
   // ---------- themes ----------
@@ -498,7 +500,7 @@
   function pod(c, mode) {
     const p = podState(c.id, mode);
     const meta = p.live
-      ? p.state === "queued" ? "waiting in queue" : `${modelShort(p.model)} · ${p.state === "escalated" ? "second opinion" : "executing"}`
+      ? p.state === "queued" ? ui.stage || "waiting in queue" : `${modelShort(p.model)} · ${p.state === "escalated" ? "second opinion" : "executing"}`
       : p.state === "idle" ? "click to run" : `${modelShort(p.model)} · ${dur(p.durationMs)} · ${ago(p.at)}`;
     // Not run yet: click runs it. Finished: click opens the result details; the ▶ button re-runs.
     const done = !p.live && p.state !== "idle";
@@ -992,9 +994,11 @@
         if (m.level === "error") { ui.pendingClose = false; ui.orgSaving = null; }
         return toast(m.level, m.text);
       case "needsUser": ui.needsUser = m.message; return render();
-      case "run:start": ui.run = { total: m.total, done: 0 }; addLog(`>>> MISSION START · ${m.total} execution(s) · org ${m.org}`); return;
+      case "run:start": ui.run = { total: m.total, done: 0 }; ui.stage = "Preparing the run..."; addLog(`>>> MISSION START · ${m.total} execution(s) · org ${m.org}`); return render();
+      case "run:stage": ui.stage = m.text; return render();
       case "live": {
         S.live[`${m.id}:${m.mode}`] = { phase: m.phase, model: m.model };
+        ui.stage = null; // a case is running: the pods speak for themselves now
         if (m.phase === "escalated") toast("warn", `${m.id} ${m.mode}: escalating to ${modelShort(m.model)}`);
         return render();
       }
@@ -1013,6 +1017,7 @@
         const p = m.results.filter((r) => r.status === "passed").length;
         toast(p === m.results.length ? "ok" : "warn", `Mission complete · ${p}/${m.results.length} passed`);
         ui.run = null;
+        ui.stage = null;
         return;
       }
       case "gen:result":

@@ -3,6 +3,7 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import { BrowserContext, Page, chromium } from "playwright";
 import { LoginOptions, OrgConfig } from "./types";
+import { describeOrg } from "./sfcli";
 
 export interface AuthSession {
   /** Playwright storageState file with the logged-in Salesforce cookies */
@@ -115,6 +116,18 @@ export async function authenticate(
       await context.close();
     }
   };
+
+  // A username/password (or interactive) org that the sf CLI is already logged in to: use the CLI's session instead -
+  // no password, passkey or MFA. Typical when the org was linked in the tester before it was authorised in the CLI.
+  if (org.authMode !== "sfcli" && org.username && /^[\w.@+-]+$/.test(org.username)) {
+    cb.log(`Checking whether the sf CLI is already logged in as ${org.username}...`);
+    const cli = await describeOrg(org.username).catch(() => undefined);
+    // Only the very same account: a CLI alias spelled like a username could resolve to someone else.
+    if (cli?.connected && cli.username.toLowerCase() === org.username.toLowerCase()) {
+      cb.log(`The sf CLI is logged in to "${org.name}" (${cli.alias ?? cli.username}) - using it, no password or MFA needed.`);
+      org = { ...org, authMode: "sfcli", sfAlias: cli.username };
+    }
+  }
 
   const label = { password: "username/password", sfcli: "sf CLI frontdoor", interactive: "interactive login" }[org.authMode];
   cb.log(`Logging in to ${org.name} via ${label} (login browser: ${login.browserMode})...`);
