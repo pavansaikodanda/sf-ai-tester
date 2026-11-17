@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          # The extension downloads browsers on the user's machine (npm run setup); CI doesn't need them.
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Package VSIX
+        run: >
+          npx --yes @vscode/vsce package
+          --baseContentUrl https://github.com/${{ github.repository }}/blob/main
+          --baseImagesUrl https://github.com/${{ github.repository }}/raw/main
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sf-ai-tester-vsix
+          path: "*.vsix"
+          if-no-files-found: error
